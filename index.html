@@ -1133,6 +1133,25 @@ const S = {
   ],
   activity:[]
 };
+// pristine snapshot of a brand-new account, captured before any save is loaded
+const S_DEFAULT = JSON.parse(JSON.stringify(S));
+// wipe progress back to a fresh account (used when a new user signs in, so accounts never share data)
+function resetProgress(){ try{ const d=JSON.parse(JSON.stringify(S_DEFAULT)); for(const k in S){ if(k==='uid'){continue;} delete S[k]; } for(const k in d){ S[k]=d[k]; } }catch(e){} }
+
+// email validation: format + common-typo correction + obvious-fake/disposable blocking
+const EMAIL_TYPOS={'gmial.com':'gmail.com','gmal.com':'gmail.com','gmai.com':'gmail.com','gmaill.com':'gmail.com','gnail.com':'gmail.com','gmail.co':'gmail.com','gmail.con':'gmail.com','gmail.cm':'gmail.com','yahooo.com':'yahoo.com','yaho.com':'yahoo.com','yahoo.co':'yahoo.com','hotmial.com':'hotmail.com','hotmal.com':'hotmail.com','hotmail.co':'hotmail.com','outlok.com':'outlook.com','outloook.com':'outlook.com','iclould.com':'icloud.com','icloud.co':'icloud.com'};
+const EMAIL_DISPOSABLE=['mailinator.com','tempmail.com','temp-mail.org','10minutemail.com','guerrillamail.com','trashmail.com','yopmail.com','sharklasers.com','getnada.com','throwawaymail.com','fakeinbox.com','dispostable.com','maildrop.cc','example.com','test.com','fake.com','asdf.com'];
+function validateEmailDeep(raw){
+  const em=String(raw||'').trim().toLowerCase();
+  if(!em) return {ok:false,msg:'Enter your email address.'};
+  if(!/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/.test(em)) return {ok:false,msg:'That doesn’t look like a valid email address.'};
+  if(/\.\./.test(em)||/^[.]|[.]@|@[.]/.test(em)) return {ok:false,msg:'That email address isn’t formatted correctly.'};
+  const domain=em.split('@')[1]||'';
+  if(EMAIL_TYPOS[domain]) return {ok:false,msg:`Did you mean ${em.split('@')[0]}@${EMAIL_TYPOS[domain]}? Please check your email.`,fix:`${em.split('@')[0]}@${EMAIL_TYPOS[domain]}`};
+  if(EMAIL_DISPOSABLE.includes(domain)) return {ok:false,msg:'Please use a permanent, non-temporary email address.'};
+  if(!/\.[a-z]{2,}$/.test(domain)||domain.indexOf('.')<1) return {ok:false,msg:'That email’s domain looks incomplete.'};
+  return {ok:true,email:em};
+}
 /* Portable storage: uses Claude's artifact storage when present, the real
    browser localStorage when this file is downloaded & opened, and an
    in-memory fallback otherwise. The async {key,value}|null shape matches the
@@ -1722,7 +1741,7 @@ function renderPublic(){
 }
 let demoAnswered=false;
 const DEMO_DIFFS=['Easy','Medium','Hard','Elite'];
-const DEMO_TYPE_LABEL={Vocab:'Words in Context',Transition:'Transitions',SubjVerb:'Subject–Verb Agreement',Pronoun:'Pronoun Clarity',Boundaries:'Sentence Boundaries',Central:'Central Ideas & Details',Inference:'Inference',Evidence:'Command of Evidence',GraphRead:'Data from Graphics',Slope:'Slope',Quadratics:'Quadratics',Data:'Data Analysis',Triangle:'Right Triangles',Circle:'Circles','Linear Functions':'Linear Functions','Systems':'Systems of Equations','Exponential Growth':'Exponential Growth','Ratios & Proportions':'Ratios & Proportions','Percent Change':'Percent Change'};
+const DEMO_TYPE_LABEL={'Function Notation':'Function Notation','Word Problems':'Equations & Word Problems',Vocab:'Words in Context',Transition:'Transitions',SubjVerb:'Subject–Verb Agreement',Pronoun:'Pronoun Clarity',Boundaries:'Sentence Boundaries',Central:'Central Ideas & Details',Inference:'Inference',Evidence:'Command of Evidence',GraphRead:'Data from Graphics',Slope:'Slope',Quadratics:'Quadratics',Data:'Data Analysis',Triangle:'Right Triangles',Circle:'Circles','Linear Functions':'Linear Functions','Systems':'Systems of Equations','Exponential Growth':'Exponential Growth','Ratios & Proportions':'Ratios & Proportions','Percent Change':'Percent Change'};
 function demoSeed(){const d=new Date();return Math.floor(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())/86400000);}
 function demoDayKey(){const d=new Date();return d.getFullYear()+'-'+(d.getMonth()+1)+'-'+d.getDate();}
 // Generate today's question, evaluate several candidates, keep the best valid one.
@@ -1802,8 +1821,9 @@ function oauthBtn(name,bg,fg,glyph){return `<button onclick="oauthLogin('${name}
 /* oauthLogin superseded by persistent-identity version below */
 async function doAuth(mode){
   const err=$('#authErr');const setErr=m=>{if(err)err.textContent=m;};
-  const em=($('#authEmail')?.value||'').trim();const pass=$('#authPass')?.value||'';
-  if(!vEmail(em)){setErr('Enter a valid email address.');return;}
+  const ev=validateEmailDeep($('#authEmail')?.value||'');const pass=$('#authPass')?.value||'';
+  if(!ev.ok){setErr(ev.msg);return;}
+  const em=ev.email;
   if(!vPass(pass)){setErr('Password must be at least 6 characters.');return;}
   const accts=await Store.accounts();const key=em.toLowerCase();
   if(mode==='signup'){
@@ -1812,6 +1832,7 @@ async function doAuth(mode){
     if(accts[key]){setErr('An account with this email already exists. Try logging in.');return;}
     const code=genCode();accts[key]={name:nm,email:em,pass:await hashPw(pass),recovery:code,created:Date.now(),verified:false};
     await Store.saveAccounts(accts);
+    resetProgress();
     S.user.name=nm;S.user.email=em;S.recoveryCode=code;audit('account','Account created');recordLogin();
     finishAuth();
   }else{
@@ -2675,14 +2696,29 @@ const T={};
 T['Slope']=(d)=>{const x1=RNG.int(-5,3),dx=RNG.int(2,5),x2=x1+dx;let m=RNG.int(1,5);if(d!=='Easy'&&Math.random()<.5)m=-m;const y1=RNG.int(-6,6),y2=y1+m*dx;
   if(d==='Elite'){const x3=x2+RNG.int(2,4),y3=y1+m*(x3-x1);return finalize(y3,[m*x3,y2+m,m*(x3-x2)],{skill:'Slope',type:'Slope',diff:d,stem:`A line passes through (${x1}, ${y1}) and (${x2}, ${y2}). What is the value of y on this line when x = ${x3}?`,exp:`Two steps: slope m = (${y2} \u2212 ${y1})/(${x2} \u2212 ${x1}) = ${m}; then y = ${y1} + ${m}(${x3} \u2212 ${x1}) = ${y3}.`,visual:QV.twoPoints([x1,y1],[x2,y2])});}
   return finalize(m,[-m,y2-y1,m+(m>0?1:-1)],{skill:'Slope',type:'Slope',diff:d,stem:`A line passes through the points (${x1}, ${y1}) and (${x2}, ${y2}). What is the slope of the line?`,exp:`Slope = (y\u2082 \u2212 y\u2081)/(x\u2082 \u2212 x\u2081) = (${y2} \u2212 ${y1})/(${x2} \u2212 ${x1}) = ${y2-y1}/${dx} = ${m}.`,visual:QV.twoPoints([x1,y1],[x2,y2])});};
-T['Linear Functions']=(d)=>{let m=RNG.int(2,6);if(d!=='Easy'&&Math.random()<.4)m=-m;let b=RNG.int(-6,6);if(b===0)b=4;const x=RNG.int(1,6),y=m*x+b;const bt=b<0?`\u2212 ${-b}`:`+ ${b}`;return finalize(y,[m*x,m*x-b,b],{skill:'Linear Functions',type:'Function Notation',diff:d,stem:`The function f is defined by f(x) = ${m}x ${bt}. What is the value of f(${x})?`,exp:`f(${x}) = ${m}(${x}) ${bt} = ${m*x} ${bt} = ${y}. A common error is forgetting to add the constant term.`,visual:QV.coordLine(m,b)});};
+T['Linear Functions']=(d)=>{
+  if(d==='Easy'){let m=RNG.int(2,6),b=RNG.int(-6,6);if(b===0)b=4;const x=RNG.int(2,7),y=m*x+b,bt=b<0?`− ${-b}`:`+ ${b}`;return finalize(y,[m*x,m*x-2*b,m+b],{skill:'Linear Functions',type:'Function Notation',diff:d,stem:`The function f is defined by f(x) = ${m}x ${bt}. What is the value of f(${x})?`,exp:`f(${x}) = ${m}(${x}) ${bt} = ${m*x} ${bt} = ${y}.`,visual:QV.coordLine(m,b)});}
+  if(d==='Medium'){let m=RNG.int(2,5),b=RNG.int(-9,9);if(b===0)b=3;const x=RNG.int(2,8),k=m*x+b,bt=b<0?`− ${-b}`:`+ ${b}`;return finalize(x,[k,k-b,k+b],{skill:'Linear Functions',type:'Function Notation',diff:d,stem:`The function f is defined by f(x) = ${m}x ${bt}. If f(x) = ${k}, what is the value of x?`,exp:`Set ${m}x ${bt} = ${k}. Then ${m}x = ${k-b}, so x = ${x}.`});}
+  if(d==='Hard'){let a=RNG.int(2,4),p=RNG.int(-5,5)||2,c=RNG.int(2,4),q=RNG.int(-5,5)||3,x=RNG.int(1,5);const gv=c*x+q,fg=a*gv+p,pt=p<0?`− ${-p}`:`+ ${p}`,qt=q<0?`− ${-q}`:`+ ${q}`;return finalize(fg,[a*x+p,gv,c*(a*x+p)+q],{skill:'Function Notation',type:'Function Notation',diff:d,stem:`The functions f and g are defined by f(x) = ${a}x ${pt} and g(x) = ${c}x ${qt}. What is the value of f(g(${x}))?`,exp:`Work from the inside out: g(${x}) = ${c}(${x}) ${qt} = ${gv}, then f(${gv}) = ${a}(${gv}) ${pt} = ${fg}.`});}
+  let a=RNG.int(3,7),b=RNG.int(-8,8);if(b===0)b=5;const h=RNG.int(2,5),val=a*h,bt=b<0?`− ${-b}`:`+ ${b}`;return finalize(val,[a,a*h+b,h+b],{skill:'Function Notation',type:'Function Notation',diff:d,stem:`The function f is defined by f(x) = ${a}x ${bt}. For any value of x, what is f(x + ${h}) − f(x)?`,exp:`f(x+${h}) − f(x) = [${a}(x+${h}) ${bt}] − [${a}x ${bt}] = ${a}·${h} = ${val}. The ${a}x terms and the constant cancel, leaving the slope times ${h}.`});
+};
+T['Word Problems']=(d)=>{
+  if(d==='Easy'){const start=RNG.int(5,20),rate=RNG.int(3,8),x=RNG.int(4,9),total=start+rate*x;return finalize(x,[total,total-start,rate],{skill:'Equations & Word Problems',type:'Word Problems',diff:d,stem:`A gym charges a $${start} sign-up fee plus $${rate} for each class. A member who paid $${total} in total attended how many classes?`,exp:`${start} + ${rate}x = ${total} → ${rate}x = ${total-start} → x = ${x}.`});}
+  if(d==='Medium'){const adult=RNG.int(8,14),child=RNG.int(4,7),nc=RNG.int(3,8),na=RNG.int(2,6),total=adult*na+child*nc;return finalize(na,[nc,na+nc,total-child*nc],{skill:'Equations & Word Problems',type:'Word Problems',diff:d,stem:`Adult tickets cost $${adult} and child tickets cost $${child}. A group bought ${nc} child tickets and some adult tickets for $${total} total. How many adult tickets did they buy?`,exp:`Child tickets cost ${child}×${nc} = $${child*nc}. Remaining: ${total} − ${child*nc} = $${total-child*nc}. Adult tickets: ${total-child*nc} ÷ ${adult} = ${na}.`});}
+  if(d==='Hard'){const s1=RNG.int(40,60),t1=RNG.int(2,3),s2=RNG.int(20,35),t2=RNG.int(1,2),dist=s1*t1+s2*t2;return finalize(dist,[s1*t1,s2*t2,(s1+s2)*(t1+t2)],{skill:'Equations & Word Problems',type:'Word Problems',diff:d,stem:`A driver travels at ${s1} mph for ${t1} hours, then at ${s2} mph for ${t2} hours. What is the total distance traveled, in miles?`,exp:`Distance = rate × time. Phase 1: ${s1}×${t1} = ${s1*t1}. Phase 2: ${s2}×${t2} = ${s2*t2}. Total = ${dist} miles.`});}
+  let mp=RNG.int(2,5),cp=RNG.int(1,4),m1=RNG.int(2,4),k1=RNG.int(2,5),m2=RNG.int(2,5),k2=RNG.int(1,4);if(m1*k2-m2*k1===0)k2++;const t1=m1*mp+k1*cp,t2=m2*mp+k2*cp;return finalize(mp,[cp,Math.abs(t1-t2),m1+k1],{skill:'Equations & Word Problems',type:'Word Problems',diff:d,stem:`At a bakery, ${m1} muffins and ${k1} cookies cost $${t1}, and ${m2} muffins and ${k2} cookies cost $${t2}. What is the price, in dollars, of one muffin?`,exp:`Let m and c be the muffin and cookie prices. ${m1}m + ${k1}c = ${t1} and ${m2}m + ${k2}c = ${t2}. Solving the system gives m = $${mp} (and c = $${cp}).`});
+};
 T['Systems']=(d)=>{let x0=RNG.int(-4,5),y0=RNG.int(-4,5);if(x0===0)x0=2;if(y0===0)y0=3;if(y0===x0)y0++;if(y0===-x0)y0+=2;const a=RNG.int(1,3),b=RNG.int(1,3),c=a*x0+b*y0,e=RNG.int(1,3),f=RNG.int(1,3),g=e*x0-f*y0;
   if(d==='Elite'){const tgt=2*x0+y0;return finalize(tgt,[x0+y0,2*y0+x0,x0],{skill:'Systems of Equations',type:'Systems of Equations',diff:d,stem:`In the system ${a}x + ${b}y = ${c} and ${e}x \u2212 ${f}y = ${g}, what is the value of 2x + y?`,exp:`Solve first: x = ${x0}, y = ${y0}. Then 2x + y = 2(${x0}) + ${y0} = ${tgt}. The trap is stopping at x or y instead of evaluating the expression.`});}
   return finalize(x0,[y0,-x0,x0+y0],{skill:'Systems of Equations',type:'Systems of Equations',diff:d,stem:`In the system of equations ${a}x + ${b}y = ${c} and ${e}x \u2212 ${f}y = ${g}, what is the value of x?`,exp:`Combining the equations to eliminate y gives x = ${x0} (and y = ${y0}). Watch for solving for the wrong variable.`});};
 T['Percent Change']=(d)=>{
   if(d==='Elite'){const O=RNG.pick([100,200,400,500]),up=RNG.pick([10,20,25]),down=RNG.pick([10,20]),mid=O*(1+up/100),fin=mid*(1-down/100),net=Math.round((fin-O)/O*1000)/10;return finalize(net+'%',[(up-down)+'%',(-down)+'%',(up+down)+'%'],{skill:'Percent Change',type:'Percent Change',diff:d,stem:`A stock rose ${up}% one week, then fell ${down}% the next. What was the net percent change from its starting price?`,exp:`Apply the changes in sequence: ${O} \u00D7 ${1+up/100} = ${mid}, then \u00D7 ${1-down/100} = ${fin}. Net = (${fin} \u2212 ${O})/${O} \u00D7 100 = ${net}%. You cannot simply subtract ${up}% \u2212 ${down}%.`});}
   const O=RNG.pick([200,300,400,500,800,1000,160,240]),pct=RNG.pick([10,15,20,25,40,5]),up=Math.random()<.5,N=up?O+O*pct/100:O-O*pct/100;return finalize(pct+'%',[Math.round((up?O-N:N-O)/N*1000)/10+'%',(up?'+':'\u2212')+(O*pct/100),(100-pct)+'%'],{skill:'Percent Change',type:'Percent Change',diff:d,stem:`A subscription’s price ${up?'rose':'fell'} from $${O} to $${N}. What was the percent ${up?'increase':'decrease'}?`,exp:`Percent change = |change| \u00F7 original \u00D7 100 = ${O*pct/100} \u00F7 ${O} \u00D7 100 = ${pct}%. Always divide by the original amount, not the new one.`});};
-T['Quadratics']=(d)=>{let r1=RNG.int(-5,5)||2,r2=RNG.int(-5,5)|| -3;if(r1===r2)r2++;const b=-(r1+r2),c=r1*r2,bt=b<0?`\u2212 ${-b}`:`+ ${b}`,ct=c<0?`\u2212 ${-c}`:`+ ${c}`,askSum=Math.random()<.6;if(askSum)return finalize(r1+r2,[r1*r2,-(r1+r2),r1],{skill:'Quadratics',type:'Quadratics',diff:d,stem:`If x\u00B2 ${bt}x ${ct} = 0, what is the sum of the solutions?`,exp:`For x\u00B2 + bx + c = 0, the sum of the solutions equals \u2212b = ${r1+r2}. (The solutions are ${r1} and ${r2}.)`});return finalize(r1*r2,[r1+r2,-(r1*r2),r1],{skill:'Quadratics',type:'Quadratics',diff:d,stem:`If x\u00B2 ${bt}x ${ct} = 0, what is the product of the solutions?`,exp:`For x\u00B2 + bx + c = 0, the product of the solutions equals c = ${r1*r2}. (The solutions are ${r1} and ${r2}.)`});};
+T['Quadratics']=(d)=>{
+  if(d==='Easy'||d==='Medium'){let r1=RNG.int(-5,5)||2,r2=RNG.int(-5,5)|| -3;if(r1===r2)r2++;const b=-(r1+r2),c=r1*r2,bt=b<0?`− ${-b}`:`+ ${b}`,ct=c<0?`− ${-c}`:`+ ${c}`;if(d==='Easy')return finalize(c,[r1+r2,-c,r1],{skill:'Quadratics',type:'Quadratics',diff:d,stem:`If x² ${bt}x ${ct} = 0, what is the product of the solutions?`,exp:`The product of the solutions equals the constant term, c = ${c}. (Solutions: ${r1} and ${r2}.)`});return finalize(r1+r2,[c,-(r1+r2),r1],{skill:'Quadratics',type:'Quadratics',diff:d,stem:`If x² ${bt}x ${ct} = 0, what is the sum of the solutions?`,exp:`The sum of the solutions equals −b = ${r1+r2}. (Solutions: ${r1} and ${r2}.)`});}
+  if(d==='Hard'){let b=RNG.int(-6,6),c=RNG.int(-6,8);const disc=b*b-4*c,n=disc>0?2:disc===0?1:0,bt=b<0?`− ${-b}`:`+ ${b}`,ct=c<0?`− ${-c}`:`+ ${c}`;return finalize(n,[...[0,1,2].filter(v=>v!==n),3],{skill:'Quadratics',type:'Quadratics',diff:d,stem:`How many distinct real solutions does the equation x² ${bt}x ${ct} = 0 have?`,exp:`The discriminant is b² − 4ac = (${b})² − 4(1)(${c}) = ${disc}. ${disc>0?'A positive discriminant → 2 real solutions.':disc===0?'A zero discriminant → exactly 1 real solution.':'A negative discriminant → 0 real solutions.'}`});}
+  let b=RNG.pick([2,4,6,8,-4,-6]);const c=(b*b)/4,bt=b<0?`− ${-b}`:`+ ${b}`;return finalize(c,[b,b*b,-c],{skill:'Quadratics',type:'Quadratics',diff:d,stem:`For what value of c does the equation x² ${bt}x + c = 0 have exactly one real solution?`,exp:`Exactly one solution means the discriminant is zero: b² − 4c = 0, so c = b²/4 = (${b})²/4 = ${c}.`});
+};
 T['Exponential Growth']=(d)=>{
   if(d==='Elite'){const P=RNG.pick([2,3,5]),f=RNG.pick([2,3]),t=RNG.int(3,4),v=P*Math.pow(f,t);return finalize(t,[t+1,t-1,v/P],{skill:'Exponential Growth',type:'Exponential Growth',diff:d,stem:`A colony of ${P} cells ${f===2?'doubles':'triples'} every hour and now numbers ${v}. How many hours have passed?`,exp:`Solve ${P} \u00D7 ${f}^t = ${v}: divide to get ${f}^t = ${v/P}, so t = ${t}. Work backward from the total using the growth factor.`});}
   const P=RNG.pick([50,100,200,300]),f=RNG.pick([2,3]);let t=RNG.int(2,3);if(f===2&&t===2)t=3;const v=P*Math.pow(f,t),verb=f===2?'doubles':'triples';return finalize(v,[P*f*t,P*f,P+f*t],{skill:'Exponential Growth',type:'Exponential Growth',diff:d,stem:`A bacterial sample begins with ${P} cells and ${verb} every hour. How many cells are present after ${t} hours?`,exp:`Growth is exponential: ${P} \u00D7 ${f}^${t} = ${P} \u00D7 ${Math.pow(f,t)} = ${v}. Multiplying by ${f}\u00D7${t} would treat it as linear and undercount.`});};
@@ -2722,9 +2758,9 @@ const PAIRED_BANK=[
 ];
 T['Paired']=(d)=>{const e=pickByDiff(PAIRED_BANK,d);return finalize(e.c,e.d,{skill:'Cross-Text Connections',type:'Cross-Text Connections',subskill:'Paired passages',diff:d,cat:e.cat,source:'curated-bank',stem:`${catTag(e.cat+' \u00B7 paired')}<div style="margin-top:10px"><div class="q-passage" style="border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:8px"><b class="mono" style="color:var(--cyan);font-size:11px">PASSAGE A</b><div style="margin-top:4px">${e.a}</div></div><div class="q-passage" style="border:1px solid var(--line);border-radius:10px;padding:12px"><b class="mono" style="color:var(--magenta);font-size:11px">PASSAGE B</b><div style="margin-top:4px">${e.b}</div></div><div style="margin-top:12px;font-weight:600">Based on both passages, which statement is best supported?</div></div>`,exp:e.e});};
 
-const mathTemplates=['Slope','Linear Functions','Systems','Quadratics','Exponential Growth','Ratios & Proportions','Percent Change','Data','Triangle','Circle'];
+const mathTemplates=['Slope','Linear Functions','Word Problems','Systems','Quadratics','Exponential Growth','Ratios & Proportions','Percent Change','Data','Triangle','Circle'];
 const readingTemplates=['Vocab','Transition','SubjVerb','Pronoun','Boundaries','Central','Inference','Evidence','GraphRead','Paired'];
-const SKILL_T={'Slope':'Slope','Linear Functions':'Linear Functions','Inequalities':'Linear Functions','Function Notation':'Linear Functions','Systems of Equations':'Systems','Quadratics':'Quadratics','Factoring':'Quadratics','Exponential Growth':'Exponential Growth','Ratios & Proportions':'Ratios & Proportions','Percent Change':'Percent Change','Standard Deviation':'Data','Right Triangles':'Triangle','Sine Cosine Tangent':'Triangle','Circles':'Circle','Graph Interpretation':'GraphRead','Vocabulary in Context':'Vocab','Tone Through Diction':'Vocab','Transitions':'Transition','Organization':'Transition','Rhetorical Synthesis':'Transition','Subject-Verb Agreement':'SubjVerb','Modifiers':'SubjVerb','Pronoun Agreement':'Pronoun','Sentence Boundaries':'Boundaries','Function of Sentence':'Boundaries','Central Idea':'Central','Cross-Text Connections':'Paired','Inference':'Inference','Command of Evidence':'Evidence'};
+const SKILL_T={'Slope':'Slope','Linear Functions':'Linear Functions','Inequalities':'Linear Functions','Function Notation':'Linear Functions','Equations & Word Problems':'Word Problems','Systems of Equations':'Systems','Quadratics':'Quadratics','Factoring':'Quadratics','Exponential Growth':'Exponential Growth','Ratios & Proportions':'Ratios & Proportions','Percent Change':'Percent Change','Standard Deviation':'Data','Right Triangles':'Triangle','Sine Cosine Tangent':'Triangle','Circles':'Circle','Graph Interpretation':'GraphRead','Vocabulary in Context':'Vocab','Tone Through Diction':'Vocab','Transitions':'Transition','Organization':'Transition','Rhetorical Synthesis':'Transition','Subject-Verb Agreement':'SubjVerb','Modifiers':'SubjVerb','Pronoun Agreement':'Pronoun','Sentence Boundaries':'Boundaries','Function of Sentence':'Boundaries','Central Idea':'Central','Cross-Text Connections':'Paired','Inference':'Inference','Command of Evidence':'Evidence'};
 function mathSkill(sk){return ['Slope','Linear','Systems','Quadr','Factor','Exponential','Ratio','Percent','Deviation','Triangle','Circle','Sine','Inequal','Function N'].some(w=>sk.includes(w));}
 
 /* ============================================================
@@ -2737,7 +2773,7 @@ const RW_DOMAINS={
   'Standard English Conventions':['SubjVerb','Pronoun','Boundaries']
 };
 const MATH_DOMAINS={
-  'Algebra':['Slope','Linear Functions','Systems'],
+  'Algebra':['Slope','Linear Functions','Systems','Word Problems','Word Problems'],
   'Advanced Math':['Quadratics','Exponential Growth'],
   'Problem-Solving and Data Analysis':['Ratios & Proportions','Percent Change','Data'],
   'Geometry and Trigonometry':['Triangle','Circle']
@@ -2767,7 +2803,7 @@ function validateQuestion(q,section){
   return true;
 }
 // difficulty distribution; `level` may be a boolean (legacy) or a 0..1 intensity (adaptive routing)
-function sampleDiff(level){const L=typeof level==='number'?Math.max(0,Math.min(1,level)):(level?0.7:0.3);const r=Math.random();const e=0.30-0.22*L,m=e+0.45-0.10*L,h=m+0.18+0.18*L;return r<e?'Easy':r<m?'Medium':r<h?'Hard':'Elite';}
+function sampleDiff(level){const L=typeof level==='number'?Math.max(0,Math.min(1,level)):(level?0.7:0.3);const r=Math.random();const e=0.26-0.18*L,m=e+0.40-0.10*L,h=m+0.20+0.16*L;return r<e?'Easy':r<m?'Medium':r<h?'Hard':'Elite';}
 
 const QGen={
   _seen:new Set(),
@@ -4026,7 +4062,7 @@ async function persistAccount(){try{if(!S.authed||!S.user||!S.user.email||!(type
 
 /* ---------- PROVIDER IDENTITY (persistent local OAuth stand-in) ---------- */
 async function oauthLogin(p){toast('Connecting to '+p+'…','◈');let a,fresh=false;try{const accts=await Store.accounts();const key=p.toLowerCase()+':user';a=accts[key];if(!a){fresh=true;a={name:p==='Discord'?'NebulaScholar':p+' Scholar',email:key,provider:p,created:Date.now(),onboarded:false,diagnosticDone:false};accts[key]=a;await Store.saveAccounts(accts);}
-    S.user.name=a.name;S.user.email=key;S.provider=p;if(a.state)restoreState(a.state);S.onboarded=a.onboarded||S.onboarded;S.diagnosticDone=a.diagnosticDone||S.diagnosticDone;if(typeof recordLogin==='function')recordLogin();audit('login',(fresh?'Created':'Loaded')+' '+p+' identity');
+    S.user.name=a.name;S.user.email=key;S.provider=p;if(a.state)restoreState(a.state);else if(fresh)resetProgress();S.user.name=a.name;S.user.email=key;S.provider=p;S.onboarded=a.onboarded||S.onboarded;S.diagnosticDone=a.diagnosticDone||S.diagnosticDone;if(typeof recordLogin==='function')recordLogin();audit('login',(fresh?'Created':'Loaded')+' '+p+' identity');
   }catch(e){S.user.name=p+' Scholar';}
   S.authed=true;closeModal();if(S.onboarded){enterApp();}else{openOnboarding(0);}}
 
@@ -4070,9 +4106,10 @@ async function firebaseOAuth(p){
 async function firebaseDoAuth(mode){
   const err = document.querySelector('#authErr');
   const setErr = (m) => { if (err) err.textContent = m; };
-  const em = ((document.querySelector('#authEmail') || {}).value || '').trim();
+  const ev = validateEmailDeep((document.querySelector('#authEmail') || {}).value || '');
+  if (!ev.ok) { setErr(ev.msg); return; }
+  const em = ev.email;
   const pass = (document.querySelector('#authPass') || {}).value || '';
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) { setErr('Enter a valid email address.'); return; }
   if ((pass || '').length < 6) { setErr('Password must be at least 6 characters.'); return; }
   setErr('');
   try{
@@ -4097,7 +4134,7 @@ async function enterWithFirebaseUser(user){
     let snap = null;
     if (fbDb){ try{ const d = await fbDb.collection('eclipyxUsers').doc(user.uid).get(); if (d && d.exists) snap = (d.data() || {}).state || null; }catch(e){} }
     if (!snap){ try{ const r = await KV.get('eclipyx:fb:' + user.uid); if (r && r.value) snap = JSON.parse(r.value); }catch(e){} }
-    if (snap) restoreState(snap);
+    if (snap) restoreState(snap); else resetProgress();   // brand-new account → fresh, isolated data
     ensureState();
     S.authed = true;
     S.user.name = user.displayName || S.user.name || 'Explorer';
