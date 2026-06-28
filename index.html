@@ -67,7 +67,15 @@ input,select,textarea{font-family:inherit}
 .nav{position:sticky;top:0;z-index:60;backdrop-filter:blur(14px);background:rgba(7,6,15,.62);border-bottom:1px solid var(--line)}
 .nav-in{display:flex;align-items:center;gap:30px;height:70px}
 .brand{display:flex;align-items:center;gap:11px;font-family:var(--disp);font-weight:700;font-size:20px;letter-spacing:-.02em}
-.brand .mark{width:34px;height:34px;flex:0 0 auto}
+.brand .mark{width:36px;height:36px;flex:0 0 auto;overflow:visible;filter:drop-shadow(0 0 9px rgba(255,77,141,.4))}
+.mark-rays{transform-box:view-box;transform-origin:22px 22px;animation:markSpin 16s linear infinite}
+@keyframes markSpin{to{transform:rotate(360deg)}}
+.mark-spark{animation:markPulse 3s ease-in-out infinite}
+@keyframes markPulse{0%,100%{opacity:.4}50%{opacity:1}}
+.brand{transition:filter .3s}
+.brand:hover .mark-rays{animation-duration:5s}
+.brand:hover .mark{filter:drop-shadow(0 0 16px rgba(255,77,141,.65))}
+@media (prefers-reduced-motion:reduce){.mark-rays,.mark-spark{animation:none}}
 .nav-links{display:flex;gap:26px;margin-left:8px}
 .nav-links a{color:var(--muted);font-size:14.5px;font-weight:600;transition:color .2s}
 .nav-links a:hover{color:var(--ink)}
@@ -902,6 +910,12 @@ body.dev-on .dev-only{display:flex}
 </style>
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute;pointer-events:none" aria-hidden="true"><defs>
+  <linearGradient id="lg" x1="0" y1="0" x2="44" y2="44"><stop stop-color="#7c5cff"/><stop offset=".5" stop-color="#ff4d8d"/><stop offset="1" stop-color="#ffb45c"/></linearGradient>
+  <linearGradient id="lgMark" gradientUnits="userSpaceOnUse" x1="4" y1="6" x2="40" y2="38"><stop stop-color="#8a6bff"/><stop offset=".5" stop-color="#ff4d8d"/><stop offset="1" stop-color="#ffc06a"/></linearGradient>
+  <radialGradient id="lgGlow" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#ff7ab8" stop-opacity="0"/><stop offset="55%" stop-color="#ff4d8d" stop-opacity="0"/><stop offset="100%" stop-color="#7c5cff" stop-opacity=".4"/></radialGradient>
+  <filter id="lgBlur" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="1.2"/></filter>
+</defs></svg>
 <canvas id="sky"></canvas>
 <div class="eclipse-stage" aria-hidden="true">
   <div class="eclipse-glow"></div>
@@ -913,7 +927,7 @@ body.dev-on .dev-only{display:flex}
 <div id="site">
 <nav class="nav"><div class="wrap nav-in">
   <a href="#top" class="brand" onclick="scrollTop()">
-    <svg class="mark" viewBox="0 0 40 40" fill="none"><defs><linearGradient id="lg" x1="0" y1="0" x2="40" y2="40"><stop stop-color="#7c5cff"/><stop offset=".5" stop-color="#ff4d8d"/><stop offset="1" stop-color="#ffb45c"/></linearGradient></defs><circle cx="20" cy="20" r="18" stroke="url(#lg)" stroke-width="3"/><circle cx="24" cy="20" r="13" fill="#07060f"/><circle cx="24" cy="20" r="13" stroke="url(#lg)" stroke-width="1.4" opacity=".5"/></svg>
+    <svg class="mark" viewBox="0 0 44 44" fill="none" aria-hidden="true"><circle cx="22" cy="22" r="21" fill="url(#lgGlow)"/><g class="mark-rays" stroke="url(#lgMark)" stroke-width="1.6" stroke-linecap="round"><line x1="22" y1="1.5" x2="22" y2="6.5"/><line x1="22" y1="37.5" x2="22" y2="42.5"/><line x1="1.5" y1="22" x2="6.5" y2="22"/><line x1="37.5" y1="22" x2="42.5" y2="22"/><line x1="7.6" y1="7.6" x2="11.1" y2="11.1"/><line x1="32.9" y1="32.9" x2="36.4" y2="36.4"/><line x1="7.6" y1="36.4" x2="11.1" y2="32.9"/><line x1="32.9" y1="11.1" x2="36.4" y2="7.6"/></g><circle cx="22" cy="22" r="13" fill="url(#lgMark)"/><circle cx="25.6" cy="20.7" r="12.4" fill="#07060f"/><circle cx="22" cy="22" r="14.9" stroke="url(#lgMark)" stroke-width="3.4" filter="url(#lgBlur)" opacity=".45"/><circle cx="22" cy="22" r="14.9" stroke="url(#lgMark)" stroke-width="2.1" opacity=".9"/><circle class="mark-spark" cx="11.3" cy="15.4" r="2" fill="#fff"/><circle class="mark-spark" cx="11.3" cy="15.4" r="3.6" fill="#ff9ecb" opacity=".4" filter="url(#lgBlur)"/></svg>
     Eclipyx
   </a>
   <div class="nav-links">
@@ -1046,7 +1060,7 @@ body.dev-on .dev-only{display:flex}
 <footer class="footer"><div class="wrap">
   <div class="foot-grid">
     <div class="foot-brand">
-      <a href="#top" class="brand" onclick="scrollTop()"><svg class="mark" viewBox="0 0 40 40" fill="none"><circle cx="20" cy="20" r="18" stroke="url(#lg)" stroke-width="3"/><circle cx="24" cy="20" r="13" fill="#07060f"/></svg> Eclipyx</a>
+      <a href="#top" class="brand" onclick="scrollTop()"><svg class="mark" viewBox="0 0 44 44" fill="none" aria-hidden="true"><circle cx="22" cy="22" r="21" fill="url(#lgGlow)"/><g class="mark-rays" stroke="url(#lgMark)" stroke-width="1.6" stroke-linecap="round"><line x1="22" y1="1.5" x2="22" y2="6.5"/><line x1="22" y1="37.5" x2="22" y2="42.5"/><line x1="1.5" y1="22" x2="6.5" y2="22"/><line x1="37.5" y1="22" x2="42.5" y2="22"/><line x1="7.6" y1="7.6" x2="11.1" y2="11.1"/><line x1="32.9" y1="32.9" x2="36.4" y2="36.4"/><line x1="7.6" y1="36.4" x2="11.1" y2="32.9"/><line x1="32.9" y1="11.1" x2="36.4" y2="7.6"/></g><circle cx="22" cy="22" r="13" fill="url(#lgMark)"/><circle cx="25.6" cy="20.7" r="12.4" fill="#07060f"/><circle cx="22" cy="22" r="14.9" stroke="url(#lgMark)" stroke-width="3.4" filter="url(#lgBlur)" opacity=".45"/><circle cx="22" cy="22" r="14.9" stroke="url(#lgMark)" stroke-width="2.1" opacity=".9"/><circle class="mark-spark" cx="11.3" cy="15.4" r="2" fill="#fff"/><circle class="mark-spark" cx="11.3" cy="15.4" r="3.6" fill="#ff9ecb" opacity=".4" filter="url(#lgBlur)"/></svg> Eclipyx</a>
       <p>The complete SAT mastery ecosystem. Adaptive learning, gamification, and AI coaching built to maximize your score.</p>
     </div>
     <div class="foot-col"><h5>Product</h5>
@@ -1069,7 +1083,7 @@ body.dev-on .dev-only{display:flex}
 <!-- ============ APP ============ -->
 <div id="app"><div class="app-grid">
   <aside class="side">
-    <a class="brand" onclick="closeSide()"><svg class="mark" viewBox="0 0 40 40" fill="none"><circle cx="20" cy="20" r="18" stroke="url(#lg)" stroke-width="3"/><circle cx="24" cy="20" r="13" fill="#07060f"/></svg> Eclipyx</a>
+    <a class="brand" onclick="closeSide()"><svg class="mark" viewBox="0 0 44 44" fill="none" aria-hidden="true"><circle cx="22" cy="22" r="21" fill="url(#lgGlow)"/><g class="mark-rays" stroke="url(#lgMark)" stroke-width="1.6" stroke-linecap="round"><line x1="22" y1="1.5" x2="22" y2="6.5"/><line x1="22" y1="37.5" x2="22" y2="42.5"/><line x1="1.5" y1="22" x2="6.5" y2="22"/><line x1="37.5" y1="22" x2="42.5" y2="22"/><line x1="7.6" y1="7.6" x2="11.1" y2="11.1"/><line x1="32.9" y1="32.9" x2="36.4" y2="36.4"/><line x1="7.6" y1="36.4" x2="11.1" y2="32.9"/><line x1="32.9" y1="11.1" x2="36.4" y2="7.6"/></g><circle cx="22" cy="22" r="13" fill="url(#lgMark)"/><circle cx="25.6" cy="20.7" r="12.4" fill="#07060f"/><circle cx="22" cy="22" r="14.9" stroke="url(#lgMark)" stroke-width="3.4" filter="url(#lgBlur)" opacity=".45"/><circle cx="22" cy="22" r="14.9" stroke="url(#lgMark)" stroke-width="2.1" opacity=".9"/><circle class="mark-spark" cx="11.3" cy="15.4" r="2" fill="#fff"/><circle class="mark-spark" cx="11.3" cy="15.4" r="3.6" fill="#ff9ecb" opacity=".4" filter="url(#lgBlur)"/></svg> Eclipyx</a>
     <a class="side-link active" data-route="dashboard" onclick="route('dashboard')"><span class="si">◈</span> Dashboard</a>
     <a class="side-link" data-route="academy" onclick="route('academy')"><span class="si">🌌</span> The Academy</a>
     <a class="side-link" data-route="campaign" onclick="route('campaign')"><span class="si">🗺️</span> Campaign</a>
@@ -4262,15 +4276,27 @@ function fbErr(e){
 
 async function firebaseOAuth(p){
   const err = document.querySelector('#authErr');
-  const show = (m) => { if (!m) return; if (err) err.textContent = m; else toast(m, '⚠️'); };
-  try{
-    let provider;
-    if (p === 'Google'){ provider = new firebase.auth.GoogleAuthProvider(); }
-    else if (p === 'Microsoft'){ provider = new firebase.auth.OAuthProvider('microsoft.com'); provider.setCustomParameters({ prompt: 'select_account' }); }
-    else if (p === 'Apple'){ provider = new firebase.auth.OAuthProvider('apple.com'); provider.addScope('email'); provider.addScope('name'); }
-    else { toast(p + ' isn’t available through Firebase — use Google, Microsoft, or Apple.', '◈'); return; }
-    await fbAuth.signInWithPopup(provider);   // onAuthStateChanged completes entry
-  }catch(e){ show(fbErr(e)); }
+  const show = (m, kind) => { if (!m) return; if (err) err.textContent = m; else toast(m, kind || '⚠️'); };
+  let provider;
+  if (p === 'Google'){ provider = new firebase.auth.GoogleAuthProvider(); provider.setCustomParameters({ prompt: 'select_account' }); }
+  else if (p === 'Microsoft'){ provider = new firebase.auth.OAuthProvider('microsoft.com'); provider.setCustomParameters({ prompt: 'select_account' }); }
+  else if (p === 'Apple'){ provider = new firebase.auth.OAuthProvider('apple.com'); provider.addScope('email'); provider.addScope('name'); }
+  else { toast(p + ' isn’t available through Firebase — use Google, Microsoft, or Apple.', '◈'); return; }
+  try { await fbAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL); } catch(e){}
+  const inFrame = (function(){ try { return window.self !== window.top; } catch(e){ return true; } })();
+  const doRedirect = async () => { show('Opening ' + p + ' sign-in…', '◐'); try { await fbAuth.signInWithRedirect(provider); } catch(e2){ show(fbErr(e2) || ('Could not open ' + p + ' sign-in. Allow pop-ups, or sign up with email below.'), '⚠️'); } };
+  try {
+    await fbAuth.signInWithPopup(provider);   // separate window — works even inside an iframe; onAuthStateChanged completes entry
+  } catch(e){
+    const c = (e && e.code) || '';
+    if (c.includes('popup-closed')) { show(''); return; }           // the user closed the chooser on purpose
+    if (c.includes('popup-blocked') || c.includes('cancelled-popup') || c.includes('operation-not-supported') || c.includes('internal-error') || c.includes('web-storage-unsupported')){
+      if (inFrame){ show('Pop-ups are blocked in this preview. Open the downloaded Eclipyx file in a normal browser tab to sign in with ' + p + ', or sign up with email below.', '◈'); }
+      else { await doRedirect(); }                                   // full tab → redirect works (Google can’t be shown inside a frame)
+    } else {
+      show(fbErr(e) || 'Sign-in failed. Please try again.', '⚠️');
+    }
+  }
 }
 
 async function firebaseDoAuth(mode){
@@ -4339,6 +4365,8 @@ if (FB_ACTIVE){
   commitOnboarding = function(){ _commit.apply(this, arguments); fbSyncDebounced(); };
   const _fd = finishDiagnostic;
   finishDiagnostic = function(){ _fd.apply(this, arguments); fbSyncDebounced(); };
+  // complete any full-page redirect sign-in and surface any error instead of failing silently
+  try { fbAuth.getRedirectResult().then(function(res){ if (res && res.user) enterWithFirebaseUser(res.user); }).catch(function(e){ const m = fbErr(e); if (m){ const el = document.querySelector('#authErr'); if (el) el.textContent = m; else toast(m, '⚠️'); } }); } catch(e){}
   // signed-in users are restored automatically across devices/refreshes
   fbAuth.onAuthStateChanged(function(user){ if (user) enterWithFirebaseUser(user); });
 }
