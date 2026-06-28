@@ -1914,11 +1914,13 @@ function commitOnboarding(){
 let diag={i:0,answers:[],score:0};
 // build a balanced baseline across ALL eight SAT domains with a difficulty blend
 function buildDiagnostic(){const out=[];
-  const rwPlan={'Information and Ideas':3,'Craft and Structure':2,'Expression of Ideas':2,'Standard English Conventions':2};
-  const maPlan={'Algebra':3,'Advanced Math':3,'Problem-Solving and Data Analysis':2,'Geometry and Trigonometry':2};
-  const add=(domains,plan)=>{for(const dn in plan){for(let i=0;i<plan[dn];i++){const t=RNG.pick(domains[dn]);const q=QGen.make(t,sampleDiff(0.45));q.domain=dn;q.section=domains===MATH_DOMAINS?'math':'rw';out.push(q);}}};
-  add(RW_DOMAINS,rwPlan);add(MATH_DOMAINS,maPlan);
-  return RNG.shuffle(out); // 19 questions, every domain represented, mixed difficulty
+  // Reading & Writing — every official type once, in spec order, difficulty ramping up
+  const rwDiffs=['Easy','Easy','Medium','Medium','Medium','Hard','Medium','Easy','Easy','Medium','Medium','Hard','Medium','Medium','Hard'];
+  TAXO_RW.forEach((e,i)=>{const q=genForType(e,rwDiffs[i]||'Medium');q.section='rw';out.push(q);});
+  // Math — every official type once, difficulty mixed ("all over the place")
+  const maDiffs=['Easy','Medium','Hard','Medium','Easy','Medium','Hard','Medium','Hard','Easy','Medium','Hard','Medium','Hard','Elite','Easy','Medium','Hard','Easy','Medium','Hard','Hard'];
+  TAXO_MATH.forEach((e,i)=>{const q=genForType(e,maDiffs[i]||'Medium');q.section='math';out.push(q);});
+  return out; // R&W ordered first, then Math (mixed) — every official type represented at least once
 }
 function startDiagnostic(){
   diag={i:0,answers:[],flags:{},times:{},changes:0,score:0,set:buildDiagnostic(),_t:Date.now(),_picked:null};closeModal();
@@ -1933,7 +1935,6 @@ function renderDiagQ(){
       <span class="mono" style="color:var(--muted)">${diag.i+1} / ${set.length}</span>
     </div>
     <div class="lesson-prog" style="margin-bottom:18px"><i style="width:${(diag.i)/set.length*100}%"></i></div>
-    <div class="demo-tag">${q.domain} · ${q.diff}<span class="gen-badge">${q.type}</span></div>
     ${qVisual(q)}<div class="q-stem">${q.stem}</div>
     <div class="choices">${q.choices.map((c,i)=>`<button class="choice ${diag._picked===i?'sel-ans':''}" id="dgo${i}" onclick="diagPick(${i})"><span class="lt">${'ABCD'[i]}</span><span>${c}</span></button>`).join('')}</div>
     <div class="lesson-nav" style="margin-top:18px"><span class="note">Samples every SAT domain. Flagging & answer changes are tracked.</span><button class="btn btn-primary" onclick="diagNext()">${diag.i>=set.length-1?'Finish':'Next'} →</button></div>
@@ -1945,28 +1946,40 @@ function diagFlag(){diag.flags[diag.i]=!diag.flags[diag.i];renderDiagQ();}
 function diagNext(){if(diag.answers[diag.i]===undefined)diag.answers[diag.i]=-1;diag.i++;if(diag.i>=diag.set.length)finishDiagnostic();else renderDiagQ();}
 function diagAnswer(i){diagPick(i);diagNext();} // legacy shim
 function finishDiagnostic(){
-  document.body.style.overflow='';S.diagnosticDone=true;if(typeof persistAccount==='function')persistAccount();
-  const dom={};let score=0;
-  diag.set.forEach((q,idx)=>{const ua=diag.answers[idx];const ok=ua===q.ans;if(ok)score++;QGen.record(q,ok,diag.times[idx]||0);if(!ok&&ua>=0)logMiss(q,ua,'diagnostic');const d=q.domain;dom[d]=dom[d]||{c:0,t:0};dom[d].t++;if(ok)dom[d].c++;});
-  diag.score=score;const pct=Math.round(score/diag.set.length*100);
-  const est=Math.max(400,Math.min(1600,Math.round(700+(pct/100)*760)));S.user.current=est;
-  const totMs=Object.values(diag.times).reduce((a,b)=>a+b,0);const avg=Math.round(totMs/diag.set.length/1000);
-  const ranked=Object.entries(dom).map(([d,s])=>({d,p:Math.round(s.c/s.t*100),s})).sort((a,b)=>a.p-b.p);
-  const weakest=ranked.slice(0,2),strongest=ranked.slice(-2).reverse();
-  Store.save();syncHud();
-  modal(`<div style="text-align:center"><div style="font-size:46px">📊</div><h2>Diagnostic complete</h2><p class="ms">A full baseline across every SAT domain — here's your starting picture.</p></div>
+  document.body.style.overflow='';S.diagnosticDone=true;
+  const byType={};const review=[];let score=0,rwC=0,rwT=0,maC=0,maT=0;
+  diag.set.forEach((q,idx)=>{const ua=diag.answers[idx];const skipped=(ua<0||ua==null);const ok=ua===q.ans;if(ok)score++;
+    QGen.record(q,ok,diag.times[idx]||0);if(!ok&&!skipped)logMiss(q,ua,'diagnostic');
+    const t=q.officialType||q.type;const b=byType[t]||(byType[t]={c:0,w:0,s:0,ms:0,sec:q.section,diff:q.diff});
+    if(skipped)b.s++;else if(ok)b.c++;else b.w++;b.ms+=diag.times[idx]||0;
+    if(q.section==='math'){maT++;if(ok)maC++;}else{rwT++;if(ok)rwC++;}
+    review.push({stem:q.stem,choices:q.choices,ans:q.ans,ua:(skipped?-1:ua),type:t,diff:q.diff,exp:q.exp,sec:q.section,ms:diag.times[idx]||0,visual:q.visual});});
+  diag.score=score;const total=diag.set.length;const pct=Math.round(score/total*100);
+  const rwScore=rwT?Math.max(200,Math.min(800,200+Math.round(rwC/rwT*600))):200;
+  const maScore=maT?Math.max(200,Math.min(800,200+Math.round(maC/maT*600))):200;
+  const totalScore=rwScore+maScore;S.user.current=totalScore;
+  const totMs=Object.values(diag.times).reduce((a,b)=>a+b,0);const avg=Math.round(totMs/total/1000);
+  S.lastDiagnostic={date:new Date().toLocaleDateString(),byType,review,pct,rw:rwScore,math:maScore,total:totalScore};
+  if(typeof persistAccount==='function')persistAccount();Store.save();syncHud();
+  const typeRank=Object.entries(byType).map(([t,s])=>({t,n:s.c+s.w+s.s,p:(s.c+s.w+s.s)?Math.round(s.c/(s.c+s.w+s.s)*100):0,s})).filter(r=>r.n>0).sort((a,b)=>a.p-b.p);
+  const weak=typeRank.slice(0,3);
+  const rowsFor=(sec)=>Object.entries(byType).filter(([,s])=>s.sec===sec).map(([t,s])=>`<div class="weak" style="align-items:center"><span class="nm" style="flex:1">${t}</span><span class="mono" style="font-size:12px"><span style="color:var(--good)">${s.c}</span> / <span style="color:var(--bad)">${s.w}</span> / <span style="color:var(--warn)">${s.s}</span> · ${Math.round((s.ms||0)/1000)}s</span><button class="btn btn-ghost btn-sm" style="margin-left:8px" onclick="practiceType('${t.replace(/'/g,"\\'")}','${s.diff}')">Practice</button></div>`).join('');
+  modal(`<div style="text-align:center"><div style="font-size:46px">📊</div><h2>Diagnostic complete</h2><p class="ms">Every SAT question type, scored. Here's your full baseline — saved to your account.</p></div>
     <div class="metric-grid" style="grid-template-columns:1fr 1fr 1fr;margin:16px 0">
-      <div class="metric"><div class="k">Accuracy</div><div class="v grad">${pct}%</div></div>
-      <div class="metric"><div class="k">Score estimate</div><div class="v grad">${est}</div></div>
-      <div class="metric"><div class="k">Avg time/Q</div><div class="v" style="font-size:20px">${avg}s</div></div>
+      <div class="metric"><div class="k">Total score</div><div class="v grad">${totalScore}</div></div>
+      <div class="metric"><div class="k">Reading & Writing</div><div class="v" style="font-size:22px">${rwScore}</div></div>
+      <div class="metric"><div class="k">Math</div><div class="v" style="font-size:22px">${maScore}</div></div>
     </div>
-    <h3 style="font-family:var(--disp);margin:6px 0 10px">Domain breakdown</h3>
-    ${ranked.map(r=>`<div class="weak"><span class="nm">${r.d}</span><span class="track"><i style="width:${r.p}%;background:${r.p<50?'var(--bad)':r.p<70?'var(--warn)':'var(--good)'}"></i></span><span class="pc">${r.s.c}/${r.s.t}</span></div>`).join('')}
-    <div class="metric-grid" style="grid-template-columns:1fr 1fr;margin:14px 0">
-      <div class="metric"><div class="k">Flagged</div><div class="v" style="font-size:18px">${Object.values(diag.flags).filter(Boolean).length}</div></div>
-      <div class="metric"><div class="k">Answers changed</div><div class="v" style="font-size:18px">${diag.changes}</div></div>
+    <div class="metric-grid" style="grid-template-columns:1fr 1fr;margin:0 0 14px">
+      <div class="metric"><div class="k">Accuracy</div><div class="v" style="font-size:20px">${pct}%</div></div>
+      <div class="metric"><div class="k">Avg time / question</div><div class="v" style="font-size:20px">${avg}s</div></div>
     </div>
-    <div class="explain" style="margin-bottom:16px"><b>Your plan:</b> Start with <b>${weakest.map(w=>w.d).join('</b> and <b>')}</b>, where you scored lowest. Your strength in <b>${strongest[0]?strongest[0].d:'—'}</b> can carry early momentum. These results seed your mastery model, heatmap, and AI recommendations.</div>
+    <div style="max-height:300px;overflow:auto;border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px">
+      <h3 style="font-family:var(--disp);margin:2px 0 8px">Reading & Writing — by type <span class="mono" style="font-size:11px;color:var(--faint)">(correct / incorrect / skipped · time)</span></h3>${rowsFor('rw')}
+      <h3 style="font-family:var(--disp);margin:14px 0 8px">Math — by type <span class="mono" style="font-size:11px;color:var(--faint)">(correct / incorrect / skipped · time)</span></h3>${rowsFor('math')}
+    </div>
+    <div class="explain" style="margin:0 0 14px"><b>Your focus:</b> ${weak.length?weak.map(w=>w.t).join(', '):'a balanced review'}. These seed your mastery model, heatmap, and AI recommendations.</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px"><button class="btn btn-ghost" onclick="renderDiagReview()">📝 Review answers</button><button class="btn btn-ghost" onclick="emailDiagReport()">✉️ Email me this report</button></div>
     <button class="btn btn-primary btn-block" onclick="closeModal();enterApp()">Enter my dashboard →</button>`,true);
 }
 
@@ -2203,7 +2216,7 @@ function finishLesson(){
 
 // embedded question component
 function embeddedQuestion(q,ns){
-  return `<div class="demo-tag">${q.type} · ${q.diff}<span class="gen-badge">✦ generated</span></div>${qVisual(q)}<div class="q-stem">${q.stem}</div>
+  return `<div class="demo-tag">Question</div>${qVisual(q)}<div class="q-stem">${q.stem}</div>
     <div class="choices">${q.choices.map((c,i)=>`<button class="choice" id="${ns}${i}" onclick="answerEmbedded('${ns}',${i},${q.ans})"><span class="lt">${'ABCD'[i]}</span><span>${c}</span></button>`).join('')}</div>
     <div id="${ns}exp"></div>`;
 }
@@ -2258,10 +2271,18 @@ function renderPractice(host){
   host.innerHTML=`<p class="sec-lead" style="margin-bottom:24px">Build a custom set. Choose your focus, difficulty, length, and mode — then go.</p>
   <div class="cfg-grid">
     <div class="cfg-block"><h4>Question type</h4><div class="seg">${types.map(t=>`<button class="${practiceCfg.type===t?'on':''}" onclick="setCfg('type','${t}',this)">${t}</button>`).join('')}</div></div>
-    <div class="cfg-block"><h4>Difficulty</h4><div class="seg">${['Easy','Medium','Elite'].map(d=>`<button class="${practiceCfg.diff===d?'on':''}" onclick="setCfg('diff','${d}',this)">${d}</button>`).join('')}</div></div>
+    <div class="cfg-block"><h4>Difficulty</h4><div class="seg">${['Easy','Medium','Hard','Elite'].map(d=>`<button class="${practiceCfg.diff===d?'on':''}" onclick="setCfg('diff','${d}',this)">${d}</button>`).join('')}</div></div>
     <div class="cfg-block"><h4>Question count: <span class="mono grad" id="cntLbl">${practiceCfg.count}</span></h4><div class="range-row"><input type="range" min="5" max="30" step="5" value="${practiceCfg.count}" oninput="practiceCfg.count=+this.value;document.getElementById('cntLbl').textContent=this.value"></div></div>
     <div class="cfg-block"><h4>Mode</h4><div class="seg"><button class="${!practiceCfg.timed?'on':''}" id="modeUn" onclick="practiceCfg.timed=false;tog('modeUn','modeTi')">Untimed</button><button class="${practiceCfg.timed?'on':''}" id="modeTi" onclick="practiceCfg.timed=true;tog('modeTi','modeUn')">Timed</button>
       <button class="${practiceCfg.adaptive?'on':''}" id="adOn" onclick="practiceCfg.adaptive=true;tog('adOn','adOff')">Adaptive</button><button class="${!practiceCfg.adaptive?'on':''}" id="adOff" onclick="practiceCfg.adaptive=false;tog('adOff','adOn')">Fixed</button></div></div>
+    <div class="cfg-block" style="grid-column:1/-1"><h4>Targeted drill — any official type · any difficulty</h4>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        <select id="drillType" style="background:rgba(255,255,255,.05);color:#fff;border:1px solid var(--line);padding:9px 12px;border-radius:9px;font-family:inherit;max-width:260px"><optgroup label="Reading & Writing">${TAXO_RW.map(e=>`<option value="${e[2]}">${e[1]}</option>`).join('')}</optgroup><optgroup label="Math">${TAXO_MATH.map(e=>`<option value="${e[2]}">${e[1]}</option>`).join('')}</optgroup></select>
+        <select id="drillDiff" style="background:rgba(255,255,255,.05);color:#fff;border:1px solid var(--line);padding:9px 12px;border-radius:9px;font-family:inherit">${['Easy','Medium','Hard','Elite'].map(d=>`<option${d==='Medium'?' selected':''}>${d}</option>`).join('')}</select>
+        <button class="btn btn-primary btn-sm" onclick="practiceDrill()">Start drill →</button>
+      </div>
+      <span class="note" style="display:block;margin-top:8px">Drill a single College Board question type at one specific level — every type, every difficulty.</span>
+    </div>
   </div>
   <div style="margin-top:24px;display:flex;gap:12px;align-items:center"><button class="btn btn-primary" onclick="startPractice()">Start practice set →</button><span class="note" id="cfgSummary"></span></div>`;
   updateSummary();
@@ -2292,7 +2313,7 @@ function renderPracQ(){
       <button class="btn btn-primary" onclick="addXp(${prac.score*8},'Practice set');claimPracticeQuest();renderPractice(document.getElementById('viewHost'))">Done →</button></div>`;return;}
   const q=prac.set[prac.i];prac.answered=false;currentExp=q.exp;prac._t=Date.now();
   host.innerHTML=`<div class="lesson-top"><button class="back" onclick="renderPractice(document.getElementById('viewHost'))">← Exit</button><div class="lesson-prog"><i style="width:${prac.i/prac.total*100}%"></i></div><span class="mono" style="font-size:13px;color:var(--muted)">${prac.i+1}/${prac.total}</span></div>
-  <div class="lesson-stage"><div class="demo-tag">${q.type} · ${q.diff}<span class="gen-badge">✦ generated</span><button class="bm-btn ${isBookmarked(q)?'on':''}" onclick="bookmarkQ(prac.set[prac.i],'flagged');this.classList.toggle('on')" title="Save to Question Journal">🔖</button></div>${qVisual(q)}<div class="q-stem">${q.stem}</div>
+  <div class="lesson-stage"><div class="demo-tag">Practice<button class="bm-btn ${isBookmarked(q)?'on':''}" onclick="bookmarkQ(prac.set[prac.i],'flagged');this.classList.toggle('on')" title="Save to Question Journal">🔖</button></div>${qVisual(q)}<div class="q-stem">${q.stem}</div>
     <div class="choices">${q.choices.map((c,i)=>`<button class="choice" id="pq${i}" onclick="answerPrac(${i},${q.ans})"><span class="lt">${'ABCD'[i]}</span><span>${c}</span></button>`).join('')}</div>${hintBtn(q,'pq')}
     <div id="pqexp"></div></div>`;
 }
@@ -2761,6 +2782,131 @@ T['Paired']=(d)=>{const e=pickByDiff(PAIRED_BANK,d);return finalize(e.c,e.d,{ski
 const mathTemplates=['Slope','Linear Functions','Word Problems','Systems','Quadratics','Exponential Growth','Ratios & Proportions','Percent Change','Data','Triangle','Circle'];
 const readingTemplates=['Vocab','Transition','SubjVerb','Pronoun','Boundaries','Central','Inference','Evidence','GraphRead','Paired'];
 const SKILL_T={'Slope':'Slope','Linear Functions':'Linear Functions','Inequalities':'Linear Functions','Function Notation':'Linear Functions','Equations & Word Problems':'Word Problems','Systems of Equations':'Systems','Quadratics':'Quadratics','Factoring':'Quadratics','Exponential Growth':'Exponential Growth','Ratios & Proportions':'Ratios & Proportions','Percent Change':'Percent Change','Standard Deviation':'Data','Right Triangles':'Triangle','Sine Cosine Tangent':'Triangle','Circles':'Circle','Graph Interpretation':'GraphRead','Vocabulary in Context':'Vocab','Tone Through Diction':'Vocab','Transitions':'Transition','Organization':'Transition','Rhetorical Synthesis':'Transition','Subject-Verb Agreement':'SubjVerb','Modifiers':'SubjVerb','Pronoun Agreement':'Pronoun','Sentence Boundaries':'Boundaries','Function of Sentence':'Boundaries','Central Idea':'Central','Cross-Text Connections':'Paired','Inference':'Inference','Command of Evidence':'Evidence'};
+
+/* ============================================================ COLLEGE BOARD TAXONOMY + NEW GENERATORS */
+function _gcd(a,b){a=Math.abs(a);b=Math.abs(b);while(b){const t=a%b;a=b;b=t;}return a||1;}
+
+// — Absolute Value (Easy solve → Elite tolerance word problem)
+T['Absolute Value']=(d)=>{
+  if(d==='Easy'){const k=RNG.int(3,9);return finalize(k,[-k,2*k,0],{skill:'Absolute Value',type:'Absolute Value',diff:d,stem:`If |x| = ${k} and x is positive, what is the value of x?`,exp:`|x| = ${k} gives x = ${k} or x = −${k}; since x is positive, x = ${k}.`});}
+  if(d==='Medium'){const a=RNG.int(2,8),b=RNG.int(3,9);return finalize(a+b,[a-b,b-a,a],{skill:'Absolute Value',type:'Absolute Value',diff:d,stem:`What is the greatest value of x that satisfies |x − ${a}| = ${b}?`,exp:`|x − ${a}| = ${b} means x − ${a} = ${b} or x − ${a} = −${b}, so x = ${a+b} or x = ${a-b}. The greatest is ${a+b}.`});}
+  if(d==='Hard'){const a=RNG.int(3,7)*2,b=RNG.int(1,4)*2;const s1=(a+b)/2,s2=(a-b)/2;return finalize(a,[s1,s2,a+b],{skill:'Absolute Value',type:'Absolute Value',diff:d,stem:`If |2x − ${a}| = ${b}, what is the sum of all possible values of x?`,exp:`2x − ${a} = ±${b} → x = ${s1} or x = ${s2}. Their sum is ${s1}+${s2} = ${a} (the ${b} cancels).`});}
+  const target=RNG.int(40,90),tol=RNG.int(2,6);return finalize(target-tol,[target+tol,tol,target],{skill:'Absolute Value',type:'Absolute Value',diff:d,stem:`A machine fills each bottle to ${target} mL, with an allowed error of at most ${tol} mL. A bottle of volume v is acceptable when |v − ${target}| ≤ ${tol}. What is the least volume, in mL, that is still acceptable?`,exp:`|v − ${target}| ≤ ${tol} means ${target-tol} ≤ v ≤ ${target+tol}. The least acceptable volume is ${target-tol} mL.`});
+};
+
+// — Exponents / Radicals
+T['Exponents']=(d)=>{
+  if(d==='Easy'){const a=RNG.int(2,6),b=RNG.int(2,6);return finalize(a+b,[a*b,a,Math.abs(a-b)],{skill:'Exponents/Radicals',type:'Exponents/Radicals',diff:d,stem:`The expression x^${a} · x^${b} is equivalent to x^n. What is the value of n?`,exp:`Multiplying powers with the same base adds exponents: ${a} + ${b} = ${a+b}.`});}
+  if(d==='Medium'){const a=RNG.int(2,5),b=RNG.int(2,4);return finalize(a*b,[a+b,a,b],{skill:'Exponents/Radicals',type:'Exponents/Radicals',diff:d,stem:`The expression (x^${a})^${b} is equivalent to x^n. What is the value of n?`,exp:`A power raised to a power multiplies exponents: ${a} × ${b} = ${a*b}.`});}
+  if(d==='Hard'){const k=RNG.int(3,9);return finalize(k*k,[k,2*k,k*k*k],{skill:'Exponents/Radicals',type:'Exponents/Radicals',diff:d,stem:`If √x = ${k}, what is the value of x?`,exp:`Square both sides: x = ${k}² = ${k*k}.`});}
+  const a=RNG.int(5,9),b=RNG.int(2,4),c=RNG.int(1,3);const n=a+b-c;return finalize(n,[a+b+c,a-b-c,a*b],{skill:'Exponents/Radicals',type:'Exponents/Radicals',diff:d,stem:`The expression (x^${a} · x^${b}) / x^${c} is equivalent to x^n. What is the value of n?`,exp:`Add the numerator exponents and subtract the denominator: ${a} + ${b} − ${c} = ${n}.`});
+};
+
+// — Linear Inequalities
+T['Inequalities']=(d)=>{
+  if(d==='Easy'){const a=RNG.int(2,5),b=RNG.int(-6,6),x0=RNG.int(3,8),c=a*x0+b;return finalize(x0,[x0+1,x0-1,c],{skill:'Linear Inequalities',type:'Linear Inequalities',diff:d,stem:`What is the greatest integer value of x for which ${a}x ${b<0?'− '+(-b):'+ '+b} ≤ ${c}?`,exp:`Subtract the constant: ${a}x ≤ ${c-b}. Divide by ${a}: x ≤ ${x0}. The greatest integer is ${x0}.`});}
+  if(d==='Medium'){const a=RNG.int(2,5),b=RNG.int(-6,6),x0=RNG.int(3,8),c=a*x0+b;return finalize(x0,[x0-1,x0+1,c],{skill:'Linear Inequalities',type:'Linear Inequalities',diff:d,stem:`What is the least integer value of x for which ${a}x ${b<0?'− '+(-b):'+ '+b} ≥ ${c}?`,exp:`${a}x ≥ ${c-b}, so x ≥ ${x0}. The least integer is ${x0}.`});}
+  if(d==='Hard'){const fee=RNG.int(5,15),price=RNG.int(3,8),budget=fee+price*RNG.int(4,9)+RNG.int(0,price-1);const maxN=Math.floor((budget-fee)/price);return finalize(maxN,[maxN+1,Math.floor(budget/price),maxN-1],{skill:'Linear Inequalities',type:'Linear Inequalities',diff:d,stem:`An online store charges a $${fee} flat shipping fee plus $${price} per item. With a budget of $${budget}, what is the greatest number of items that can be ordered?`,exp:`${fee} + ${price}n ≤ ${budget} → ${price}n ≤ ${budget-fee} → n ≤ ${((budget-fee)/price).toFixed(2)}. The greatest whole number is ${maxN}.`});}
+  const n=RNG.int(3,4),k=RNG.int(82,92),scores=[];for(let i=0;i<n;i++)scores.push(RNG.int(72,95));const sum=scores.reduce((a,b)=>a+b,0);const need=k*(n+1)-sum;return finalize(need,[k,need+5,need-6],{skill:'Linear Inequalities',type:'Linear Inequalities',diff:d,stem:`A student scored ${scores.join(', ')} on the first ${n} of ${n+1} tests. What is the minimum score needed on the last test to finish with an average of at least ${k}?`,exp:`Need (${sum} + x) / ${n+1} ≥ ${k}. So ${sum} + x ≥ ${k*(n+1)}, giving x ≥ ${need}.`});
+};
+
+// — Trigonometry
+T['Trig']=(d)=>{
+  const tri=RNG.pick([[3,4,5],[6,8,10],[5,12,13],[8,15,17]]);
+  if(d==='Easy'){return finalize(`${tri[0]}/${tri[1]}`,[`${tri[1]}/${tri[0]}`,`${tri[0]}/${tri[2]}`,`${tri[1]}/${tri[2]}`],{skill:'Trigonometry',type:'Trigonometry',diff:d,stem:`In a right triangle, the side opposite angle θ is ${tri[0]} and the side adjacent to θ is ${tri[1]}. What is tan θ?`,exp:`tan θ = opposite / adjacent = ${tri[0]}/${tri[1]}.`});}
+  if(d==='Medium'){const which=RNG.pick(['sin','cos']);return finalize('1/2',['√3/2','√2/2','1'],{skill:'Trigonometry',type:'Trigonometry',diff:d,stem:`In a right triangle with a 30°–60°–90° shape, what is ${which==='sin'?'the sine of the 30° angle':'the cosine of the 60° angle'}?`,exp:`The side opposite the 30° angle is half the hypotenuse, so ${which==='sin'?'sin 30°':'cos 60°'} = 1/2.`});}
+  if(d==='Hard'){const rise=RNG.int(3,9),run=RNG.int(4,12),g=_gcd(rise,run);return finalize(`${rise/g}/${run/g}`,[`${run/g}/${rise/g}`,`${rise}/${rise+run}`,`${run}/${rise+run}`],{skill:'Trigonometry',type:'Trigonometry',diff:d,stem:`A ramp rises ${rise} feet over a horizontal distance of ${run} feet. What is the tangent of the angle the ramp makes with the ground?`,exp:`tan θ = rise / run = ${rise}/${run}${g>1?` = ${rise/g}/${run/g}`:''}.`});}
+  const t2=RNG.pick([[3,4,5],[5,12,13],[8,15,17]]);return finalize(`${t2[0]}/${t2[2]}`,[`${t2[1]}/${t2[2]}`,`${t2[2]}/${t2[0]}`,`${t2[0]}/${t2[1]}`],{skill:'Trigonometry',type:'Trigonometry',diff:d,stem:`In a right triangle, sin(x°) = ${t2[0]}/${t2[2]}. What is cos((90 − x)°)?`,exp:`Cofunction identity: cos(90 − x) = sin(x). So cos((90 − x)°) = ${t2[0]}/${t2[2]}.`});
+};
+
+// — Possessives (curated grammar items)
+const POSS_BANK=[
+ {d:'Easy',s:`The ___ tail wagged when she came home.`,o:['dog','dog’s','dogs','dogs’'],a:1,e:`Singular possessive — one dog owns the tail: “dog’s.”`},
+ {d:'Easy',s:`That ___ cover is torn.`,o:['books','book’s','books’','book'],a:1,e:`One book owns the cover, so the singular possessive “book’s” is correct.`},
+ {d:'Medium',s:`All three ___ projects were displayed in the hall.`,o:['students','student’s','students’','students’s'],a:2,e:`Plural possessive — the projects belong to several students, so the apostrophe follows the s: “students’.”`},
+ {d:'Medium',s:`The two ___ schedules finally matched.`,o:['nurses','nurse’s','nurses’','nurse'],a:2,e:`More than one nurse owns schedules, so the plural possessive “nurses’” is correct.`},
+ {d:'Hard',s:`The ___ uniforms were redesigned this year.`,o:['childrens','children’s','childrens’','children'],a:1,e:`“Children” is already plural, so the possessive simply adds ’s: “children’s.”`},
+ {d:'Hard',s:`The ___ recommendation guided the whole project.`,o:['committees','committee’s','committees’','committee'],a:1,e:`A committee is a singular collective noun, so its possessive is “committee’s.”`},
+ {d:'Elite',s:`The ___ research, along with her colleagues’ findings, was published together.`,o:['scientists','scientist’s','scientists’','scientist'],a:1,e:`A single scientist owns this research, so the singular possessive “scientist’s” is correct — the other nouns in the sentence don’t change that.`}
+];
+T['Possessives']=(d)=>{const b=POSS_BANK.filter(x=>x.d===d);const e=b.length?RNG.pick(b):RNG.pick(POSS_BANK);return finalize(e.o[e.a],e.o.filter((_,i)=>i!==e.a),{skill:'Possessives',type:'Possessives',diff:d,stem:`Which choice correctly completes the sentence?<div style="margin-top:8px;font-style:italic">${e.s}</div>`,exp:e.e});};
+
+// — Full official taxonomy: [code, label, generatorTemplate, officialDomain]
+const TAXO_RW=[
+ ['CI','Central Ideas','Central','Information and Ideas'],
+ ['EVG','Command of Graphic Evidence','GraphRead','Information and Ideas'],
+ ['EV','Command of Text Evidence','Evidence','Information and Ideas'],
+ ['DP','Double Passage','Paired','Craft and Structure'],
+ ['IN','Inference','Inference','Information and Ideas'],
+ ['PS','Purpose & Structure','Central','Craft and Structure'],
+ ['SD','Specific Detail','Central','Information and Ideas'],
+ ['WCT','Words in Context / Tone','Vocab','Craft and Structure'],
+ ['PO','Possessives','Possessives','Standard English Conventions'],
+ ['PR','Pronouns','Pronoun','Standard English Conventions'],
+ ['PUN','Punctuation','Boundaries','Standard English Conventions'],
+ ['SS','Sentence Structure','Boundaries','Standard English Conventions'],
+ ['SYN','Synthesis','Transition','Expression of Ideas'],
+ ['TR','Transitions','Transition','Expression of Ideas'],
+ ['VRB','Verbs','SubjVerb','Standard English Conventions']
+];
+const TAXO_MATH=[
+ ['AV','Absolute Value','Absolute Value','Advanced Math'],
+ ['APL','Angles & Parallel Lines','Triangle','Geometry and Trigonometry'],
+ ['APV','Area, Perimeter & Volume','Triangle','Geometry and Trigonometry'],
+ ['EC','Equation of a Circle','Circle','Geometry and Trigonometry'],
+ ['EWP','Equations & Word Problems','Word Problems','Algebra'],
+ ['EQP','Equivalent Expressions','Quadratics','Advanced Math'],
+ ['ER','Evaluating Reports','Data','Problem-Solving and Data Analysis'],
+ ['EXP','Exponential Equations','Exponential Growth','Advanced Math'],
+ ['EX','Exponents & Radicals','Exponents','Advanced Math'],
+ ['LE','Linear Equations','Slope','Algebra'],
+ ['LFT','Linear Functions','Linear Functions','Algebra'],
+ ['LEQ','Linear Inequalities','Inequalities','Algebra'],
+ ['LSE','Linear Systems','Systems','Algebra'],
+ ['NFT','Nonlinear Functions','Quadratics','Advanced Math'],
+ ['NSE','Nonlinear Systems','Quadratics','Advanced Math'],
+ ['PCT','Percents','Percent Change','Problem-Solving and Data Analysis'],
+ ['QP','Quadratics','Quadratics','Advanced Math'],
+ ['RPO','Ratios & Probability','Ratios & Proportions','Problem-Solving and Data Analysis'],
+ ['TCG','Tables, Charts & Graphs','Data','Problem-Solving and Data Analysis'],
+ ['SM','Statistical Measurements','Data','Problem-Solving and Data Analysis'],
+ ['TPC','Triangles, Polygons & Circles','Triangle','Geometry and Trigonometry'],
+ ['TG','Trigonometry','Trig','Geometry and Trigonometry']
+];
+const TAXO_ALL=TAXO_RW.concat(TAXO_MATH);
+function taxoByLabel(label){return TAXO_ALL.find(e=>e[1]===label);}
+function genForType(entry,diff){const q=QGen.make(entry[2],diff);q.officialCode=entry[0];q.officialType=entry[1];q.type=entry[1];q.domain=entry[3];return q;}
+
+// Launch a targeted practice set for one official type at one difficulty
+function practiceType(label,diff){const e=taxoByLabel(label);const tpl=e?e[2]:label;practiceCfg.type=tpl;practiceCfg.diff=diff||'Medium';practiceCfg.adaptive=false;if(!practiceCfg.count)practiceCfg.count=8;closeModal();route('practice');startPractice();}
+function practiceDrill(){const ty=document.getElementById('drillType'),di=document.getElementById('drillDiff');if(!ty)return;const tpl=ty.value;practiceCfg.type=tpl;practiceCfg.diff=di?di.value:'Medium';practiceCfg.adaptive=false;startPractice();}
+function askCoachType(label){closeModal();route('coach');if(typeof toast==='function')toast('Ask the coach about: '+label,'🧭');}
+
+// Post-test review (reveals type + difficulty AFTER the test)
+function renderDiagReview(){const L=S.lastDiagnostic;if(!L||!L.review){modal('<h3>No saved review yet</h3><p class="ms">Take a diagnostic to unlock the answer review.</p>',true);return;}
+  const card=(r,i)=>{const ok=r.ua===r.ans;const skipped=r.ua<0||r.ua==null;const chip=skipped?'<span style="color:var(--warn)">Skipped</span>':ok?'<span style="color:var(--good)">Correct</span>':'<span style="color:var(--bad)">Incorrect</span>';
+    return `<div class="card" style="margin-bottom:12px;text-align:left">
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:8px"><b style="font-size:13px">Q${i+1}</b>${chip}<span class="mono" style="margin-left:auto;font-size:11px;color:var(--faint)">${r.sec==='math'?'Math':'R&W'} · ${r.type} · ${r.diff} · ${Math.round((r.ms||0)/1000)}s</span></div>
+      ${qVisual(r)}<div class="q-stem" style="font-size:14px">${r.stem}</div>
+      <div style="margin-top:8px">${r.choices.map((c,ci)=>`<div style="padding:7px 10px;border-radius:8px;margin:4px 0;border:1px solid ${ci===r.ans?'var(--good)':ci===r.ua&&!ok?'var(--bad)':'var(--line)'};background:${ci===r.ans?'rgba(84,224,168,.10)':ci===r.ua&&!ok?'rgba(255,77,109,.10)':'transparent'}"><b class="mono" style="font-size:11px">${'ABCD'[ci]}</b> ${c}${ci===r.ans?' &nbsp;<span class="mono" style="font-size:10px;color:var(--good)">✓ correct</span>':''}${ci===r.ua&&!ok?' &nbsp;<span class="mono" style="font-size:10px;color:var(--bad)">your answer</span>':''}</div>`).join('')}</div>
+      <div class="explain" style="margin-top:8px;font-size:13px"><b>Why:</b> ${r.exp||'Review the worked steps in the matching lesson.'}</div>
+      <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-ghost btn-sm" onclick="practiceType('${(r.type||'').replace(/'/g,"\\'")}','${r.diff}')">Practice this type →</button><button class="btn btn-ghost btn-sm" onclick="askCoachType('${(r.type||'').replace(/'/g,"\\'")}')">Ask the coach</button></div>
+    </div>`;};
+  const rw=L.review.filter(r=>r.sec!=='math'),ma=L.review.filter(r=>r.sec==='math');
+  $('#modalHost').innerHTML=`<div class="overlay" onclick="if(event.target===this)closeModal()"><div class="modal wide" style="max-width:820px;max-height:88vh;overflow:auto"><button class="modal-x" onclick="closeModal()">✕</button>
+    <h2 style="font-family:var(--disp)">Answer review</h2><p class="ms">Every question, your answer, the correct answer, and why — with the type and difficulty now revealed.</p>
+    <h3 style="font-family:var(--disp);margin:14px 0 8px">Reading & Writing</h3>${rw.map(card).join('')}
+    <h3 style="font-family:var(--disp);margin:16px 0 8px">Math</h3>${ma.map(card).join('')}
+    <button class="btn btn-primary btn-block" style="margin-top:10px" onclick="closeModal()">Done</button>
+  </div></div>`;
+}
+function emailDiagReport(){const L=S.lastDiagnostic;if(!L)return;const lines=['Eclipyx Diagnostic Report — '+(L.date||''),'',`Estimated total: ${L.total} (R&W ${L.rw}, Math ${L.math})`,`Accuracy: ${L.pct}%`,'','Per-type results (correct / incorrect / skipped):'];
+  Object.entries(L.byType).forEach(([t,s])=>lines.push(`• ${t}: ${s.c} / ${s.w} / ${s.s}  — ${Math.round((s.ms||0)/1000)}s`));
+  lines.push('','Open Eclipyx to review answers and start targeted practice.');
+  const body=encodeURIComponent(lines.join('\n'));const subj=encodeURIComponent('My Eclipyx Diagnostic Report');
+  const to=encodeURIComponent(S.user&&S.user.email?S.user.email:'');
+  window.location.href=`mailto:${to}?subject=${subj}&body=${body}`;
+}
 function mathSkill(sk){return ['Slope','Linear','Systems','Quadr','Factor','Exponential','Ratio','Percent','Deviation','Triangle','Circle','Sine','Inequal','Function N'].some(w=>sk.includes(w));}
 
 /* ============================================================
@@ -3001,7 +3147,7 @@ function useHint(ns,ans){const wrong=[0,1,2,3].filter(j=>j!==ans);const elim=RNG
 let mq=null;
 function miniQuiz(opts){mq=Object.assign({i:0,score:0,timer:null,_t:0},opts);if(opts.timed){mq.timeLeft=opts.timed;clearInterval(mq.timer);mq.timer=setInterval(()=>{mq.timeLeft--;const e=$('#mqTimer');if(e){const m=Math.floor(mq.timeLeft/60),s=mq.timeLeft%60;e.textContent=m+':'+String(s).padStart(2,'0');}if(mq.timeLeft<=0){clearInterval(mq.timer);mq.onResult(mq.score,mq.set.length);}},1000);}mqRender();}
 function mqRender(){const host=$('#viewHost');host.style.display='block';$('#lessonView')?.remove();$('#testView')?.remove();if(mq.i>=mq.set.length){clearInterval(mq.timer);return mq.onResult(mq.score,mq.set.length);}const q=mq.set[mq.i];mq._t=Date.now();host.innerHTML=`<div class="lesson-top"><button class="back" onclick="mqQuit()">← Exit</button><div class="lesson-prog"><i style="width:${mq.i/mq.set.length*100}%"></i></div>${mq.timed?`<span class="test-timer" id="mqTimer">0:00</span>`:`<span class="mono" style="font-size:13px;color:var(--muted)">${mq.i+1}/${mq.set.length}</span>`}</div>
-  <div class="lesson-stage"><div class="demo-tag">${mq.title} · ${q.type} · ${q.diff}</div>${qVisual(q)}<div class="q-stem">${q.stem}</div>
+  <div class="lesson-stage"><div class="demo-tag">${mq.title}</div>${qVisual(q)}<div class="q-stem">${q.stem}</div>
   <div class="choices">${q.choices.map((c,i)=>`<button class="choice" id="mq${i}" onclick="mqAnswer(${i},${q.ans})"><span class="lt">${'ABCD'[i]}</span><span>${c}</span></button>`).join('')}</div>${hintBtn(q,'mq')}<div id="mqexp"></div></div>`;}
 function mqAnswer(i,ans){const q=mq.set[mq.i];const ok=i===ans;if(ok){mq.score++;S.coins+=coinBonus();}QGen.record(q,ok,Date.now()-mq._t);for(let j=0;j<4;j++){const el=$('#mq'+j);if(el){el.style.pointerEvents='none';if(j===ans)el.classList.add('correct');else if(j===i)el.classList.add('wrong');}}$('#mqexp').innerHTML=`<div class="explain"><b>${ok?'Correct! ':'Not quite. '}</b>${q.exp}</div><div class="lesson-nav" style="margin-top:14px"><span></span><button class="btn btn-primary" onclick="mq.i++;mqRender()">Next →</button></div>`;}
 function mqQuit(){clearInterval(mq.timer);route(mq.backRoute||'dashboard');}
@@ -3038,7 +3184,7 @@ function bfRender(){const v=document.getElementById('bossFightView');if(!v)retur
       <div class="boss-hp"><div class="hp-fill" id="hpFill" style="width:${bf.hp}%"></div><div class="hp-txt" id="hpTxt">${bf.hp}%</div></div>
       <div class="player-hearts" id="hearts">${'❤️'.repeat(bf.hearts)}${'🖤'.repeat(3-bf.hearts)}</div>
     </div>
-    <div class="lesson-stage" style="margin-top:18px"><div class="demo-tag">Strike ${bf.i+1}/${bf.set.length} · ${q.type} · ${q.diff}<span class="gen-badge">✦ generated</span></div>${qVisual(q)}<div class="q-stem">${q.stem}</div>
+    <div class="lesson-stage" style="margin-top:18px"><div class="demo-tag">Strike ${bf.i+1}/${bf.set.length}</div>${qVisual(q)}<div class="q-stem">${q.stem}</div>
       <div class="choices">${q.choices.map((c,i)=>`<button class="choice" id="bq${i}" onclick="bfAnswer(${i},${q.ans})"><span class="lt">${'ABCD'[i]}</span><span>${c}</span></button>`).join('')}</div>${hintBtn(q,'bq')}<div id="bqExp"></div></div>
   </div>`;
   if(ph!==bf.shownPhase){bf.shownPhase=ph;phaseBanner(PHASE_NAMES[ph]);}}
@@ -3385,8 +3531,32 @@ function startExam(kind){const def=EXAM_DEF[kind];exam={kind,phases:def.phases.s
 }
 function curPhaseKey(){return exam.phases[exam.pi];}
 function curMod(){return exam.modules[curPhaseKey()];}
-function buildMod(key){const meta=PHASE_META[key];const size=EXAM_DEF[exam.kind].sizes[key];let intensity=0.4;if(meta.adaptive){const m1=exam.modules[meta.adaptive];if(m1)intensity=routeModule2(m1);}
-  exam.modules[key]={set:QGen.module(meta.section,size,intensity),answers:{},flags:{},times:{},i:0,size,timeLeft:meta.time,submitted:false,intensity};}
+const DIFF_LADDER=['Easy','Medium','Hard','Elite'];
+function moduleTwoThirds(m1){if(!m1||!m1.size)return false;let c=0;for(let i=0;i<m1.size;i++){if(m1.answers[i]===m1.set[i].ans)c++;}return c/m1.size>=2/3;}
+function diffPlan(size,mode){const plan=[];const push=(n,d)=>{for(let i=0;i<n;i++)plan.push(d);};
+  if(mode==='m2hard'){const m=Math.round(size*0.30),el=Math.round(size*0.30),h=size-m-el;push(m,'Medium');push(h,'Hard');push(el,'Elite');}      // harder: medium → hard → elite
+  else if(mode==='m2easy'){const e=Math.round(size*0.30),h=Math.round(size*0.22),m=size-e-h;push(e,'Easy');push(m,'Medium');push(h,'Hard');}      // easier: easy → medium → hard (no elite)
+  else{const e=Math.round(size*0.45),h=Math.round(size*0.18),m=size-e-h;push(e,'Easy');push(m,'Medium');push(h,'Hard');}                          // module 1: easy → medium → some hard
+  return plan;}
+function buildExamSet(section,plan,cap){const domains=section==='math'?MATH_DOMAINS:RW_DOMAINS;const bp=section==='math'?MATH_BLUEPRINT:RW_BLUEPRINT;
+  const bag=[];for(const dn in bp){for(let i=0;i<bp[dn];i++)bag.push(dn);}RNG.shuffle(bag);
+  const set=[],lastIdx={};
+  for(let i=0;i<plan.length;i++){const dn=bag[i%bag.length];const tpl=RNG.pick(domains[dn]);
+    const tEntry=TAXO_ALL.find(e=>e[2]===tpl);const label=tEntry?tEntry[1]:tpl;
+    const baseIdx=DIFF_LADDER.indexOf(plan[i]);
+    let idx=(lastIdx[label]!=null)?lastIdx[label]+1:baseIdx;          // per-type advancement: each repeat steps up a level
+    idx=Math.max(0,Math.min(cap,idx));lastIdx[label]=idx;
+    const q=QGen.make(tpl,DIFF_LADDER[idx]);q.domain=dn;q.officialType=label;q.type=label;q.officialCode=tEntry?tEntry[0]:'';
+    set.push(q);}
+  return set;}
+function buildMod(key){const meta=PHASE_META[key];const size=EXAM_DEF[exam.kind].sizes[key];
+  let mode='m1';if(meta.adaptive){const m1=exam.modules[meta.adaptive];mode=moduleTwoThirds(m1)?'m2hard':'m2easy';}
+  const cap=(mode==='m2hard')?3:2;const plan=diffPlan(size,mode);
+  let set=buildExamSet(meta.section,plan,cap);
+  if(meta.section!=='rw')set=RNG.shuffle(set);                        // Reading: difficulty-ramped order · Math: mixed order
+  const intensity=mode==='m2hard'?0.85:mode==='m2easy'?0.42:0.5;
+  exam.modules[key]={set,answers:{},flags:{},times:{},i:0,size,timeLeft:meta.time,submitted:false,mode,intensity};}
+
 function enterPhase(idx){if(idx>=exam.phases.length){return;}exam.pi=idx;const key=exam.phases[idx];const meta=PHASE_META[key];
  if(key==='break'){renderBreak();saveExam();return;}
  if(key==='review'){clearInterval(exam._timer);renderExamReport();clearExam();return;}
@@ -3402,7 +3572,7 @@ function renderModule(){const v=document.getElementById('examView');const m=curM
  <div style="max-width:1100px;margin:10px auto 0;padding:0 14px"><div class="mod-progress">${phaseChips}</div></div>
  <div class="test-body">
    <div class="qpanel">
-     <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px"><span class="demo-tag">Question ${m.i+1} of ${m.size}<span class="gen-badge">${q.domain}</span></span><button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="examFlag()">${m.flags[m.i]?'🚩 Flagged':'⚐ Flag'}</button></div>
+     <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px"><span class="demo-tag">Question ${m.i+1} of ${m.size}</span><button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="examFlag()">${m.flags[m.i]?'🚩 Flagged':'⚐ Flag'}</button></div>
      ${qVisual(q)}<div class="q-stem">${q.stem}</div>
      <div class="choices">${q.choices.map((c,i)=>`<button class="choice ${m.answers[m.i]===i?'sel-ans':''}" onclick="examPick(${i})"><span class="lt">${'ABCD'[i]}</span><span>${c}</span></button>`).join('')}</div>
      <div class="lesson-nav" style="margin-top:20px"><button class="btn btn-ghost" onclick="examNav(-1)" ${m.i===0?'style="visibility:hidden"':''}>← Back</button>
