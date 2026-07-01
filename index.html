@@ -1119,6 +1119,21 @@ body.dev-on .dev-only{display:flex}
 .tf-label{font:700 12px var(--disp);color:#b3a4ff;text-align:center;margin-bottom:4px}
 .tf-text{font-size:11px;color:#cfc8f5;line-height:1.45;text-align:center}
 
+.rs-box{border:1px solid rgba(124,92,255,.32);border-radius:13px;padding:14px 15px;margin:14px 0;background:linear-gradient(180deg,rgba(124,92,255,.1),rgba(60,224,224,.03))}
+.rs-h{font:700 14px var(--disp);color:#e8e4ff;margin-bottom:4px}
+.rs-lead{font-size:12px;color:var(--muted);margin-bottom:10px}
+.rs-chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.rs-chip{display:inline-flex;align-items:center;gap:7px;border:1px solid rgba(255,180,92,.4);background:rgba(255,180,92,.08);color:#ffce95;border-radius:20px;padding:6px 12px;font-size:12.5px;font-weight:600;cursor:pointer;transition:transform .12s}
+.rs-chip:hover{transform:translateY(-2px)}
+.rs-diff{font:600 9px var(--mono);text-transform:uppercase;letter-spacing:.03em;opacity:.75;border-left:1px solid rgba(255,180,92,.4);padding-left:7px}
+.rs-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+@media(max-width:520px){.rs-grid{grid-template-columns:1fr}}
+.rs-card{text-align:left;border:1px solid var(--line);border-radius:11px;padding:11px 13px;background:rgba(7,6,15,.5);cursor:pointer;transition:transform .12s,border-color .12s}
+.rs-card:hover{transform:translateY(-2px);border-color:rgba(124,92,255,.55)}
+.rs-ic{font-size:20px;margin-bottom:3px}
+.rs-ct{font:700 13px var(--disp);color:#fff}
+.rs-cs{font-size:11px;color:var(--muted);margin-top:2px}
+
 </style>
 </head>
 <body>
@@ -2050,6 +2065,7 @@ function oauthBtn(name,bg,fg,glyph){return `<button onclick="oauthLogin('${name}
 /* oauthLogin superseded by persistent-identity version below */
 async function doAuth(mode){
   const err=$('#authErr');const setErr=m=>{if(err)err.textContent=m;};
+  try{
   const ev=validateEmailDeep($('#authEmail')?.value||'');const pass=$('#authPass')?.value||'';
   if(!ev.ok){setErr(ev.msg);return;}
   const em=ev.email;
@@ -2072,6 +2088,7 @@ async function doAuth(mode){
     if(acct.state)restoreState(acct.state);S.onboarded=acct.onboarded||S.onboarded;S.diagnosticDone=acct.diagnosticDone||S.diagnosticDone;recordLogin();
     S.authed=true;closeModal();if(S.onboarded){enterApp();}else{openOnboarding(0);}
   }
+  }catch(_e){setErr('Sign-in error — '+((_e&&_e.message)||'something went wrong')+'. Please try again.');try{console.error(_e);}catch(e){}}
 }
 function forgotPassword(){
   modal(`<h2>Reset password</h2><p class="ms">Enter your email and the account recovery code you saved at sign-up.</p>
@@ -2206,6 +2223,7 @@ function finishDiagnostic(){
       <div class="metric"><div class="k">Accuracy</div><div class="v" style="font-size:20px">${pct}%</div></div>
       <div class="metric"><div class="k">Avg time / question</div><div class="v" style="font-size:20px">${avg}s</div></div>
     </div>
+    ${reportNextSteps(weak)}
     <div style="max-height:300px;overflow:auto;border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px">
       <h3 style="font-family:var(--disp);margin:2px 0 8px">Reading & Writing — by type <span class="mono" style="font-size:11px;color:var(--faint)">(correct / incorrect / skipped · time)</span></h3>${rowsFor('rw')}
       <h3 style="font-family:var(--disp);margin:14px 0 8px">Math — by type <span class="mono" style="font-size:11px;color:var(--faint)">(correct / incorrect / skipped · time)</span></h3>${rowsFor('math')}
@@ -2217,9 +2235,9 @@ function finishDiagnostic(){
 
 // ============================================================ APP ENTRY
 function enterApp(){
-  $('#site').style.display='none';$('#app').style.display='block';S.authed=true;
-  if(typeof sessionBaseline==='function')sessionBaseline();
-  window.scrollTo(0,0);syncHud();route('dashboard');Store.save();
+  S.authed=true;try{const _st=$('#site');if(_st)_st.style.display='none';}catch(e){}try{const _ap=$('#app');if(_ap)_ap.style.display='block';}catch(e){}
+  try{if(typeof sessionBaseline==='function')sessionBaseline();}catch(e){}
+  try{window.scrollTo(0,0);}catch(e){}try{syncHud();}catch(e){}try{route('dashboard');}catch(e){}try{Store.save();}catch(e){}
   if(typeof ensureRival==='function')ensureRival();if(typeof updateNotifBadge==='function')updateNotifBadge();
   if(S._devMode)try{document.body.classList.add('dev-on');}catch(e){}
 }
@@ -4348,7 +4366,7 @@ function showCheckpointReport(){
     <div class="cp-scores">${cell('Total',B.total,C.total,dT)}${cell('Reading &amp; Writing',B.rw,C.rw,dR)}${cell('Math',B.math,C.math,dM)}</div>
     <div class="cp-sec"><div class="cp-sec-h">📊 Biggest gains</div>${gRows}</div>
     <div class="cp-sec"><div class="cp-sec-h">🎯 Focus next</div>${wRows}</div>
-    <div style="text-align:center;margin-top:16px"><button class="btn btn-primary" onclick="closeModal();route('lessons')">Open Lesson Lab</button></div>`,true);
+    ${reportNextSteps(weak)}`,true);
 }
 function renderCheckpoint(host){
   const r=checkpointReady();
@@ -4357,6 +4375,13 @@ function renderCheckpoint(host){
   const H=S.checkpointHistory||[];let prior='';
   if(H.length){const B=S.diagBaseline,C=H[H.length-1],dT=C.total-B.total,sg=v=>(v>0?'+':'')+v,cl=dT>0?'var(--good)':dT<0?'var(--bad)':'var(--muted)';prior=`<div class="cp-prior"><div class="cp-prior-h">Last checkpoint · ${C.date}</div><div class="cp-prior-score">${B.total} → <b>${C.total}</b> <span style="color:${cl}">(${sg(dT)})</span></div><button class="btn btn-ghost btn-sm" onclick="showCheckpointReport()">View full report</button></div>`;}
   host.innerHTML=`<div class="cp-wrap"><div class="cp-page-hero"><div style="font-size:40px">📈</div><h1 class="cp-h1">Progress Checkpoint</h1><p class="cp-sub">You’ve practiced enough to retest. This checkpoint covers every SAT question type and compares your results to your baseline from ${S.diagBaseline.date}.</p><button class="btn btn-primary" onclick="startCheckpoint()">Start Progress Checkpoint →</button></div>${prior}</div>`;
+}
+
+
+// ===== Report next-steps: turns any results screen into a launchpad for targeted practice =====
+function reportNextSteps(weak){
+  const chips=(weak||[]).slice(0,3).map(w=>{const t=String(w.t||w.type||'').replace(/'/g,"\\'");const d=(w.s&&w.s.diff)||w.diff||'Medium';const lbl=w.t||w.type||'Skill';return `<button class="rs-chip" onclick="closeModal();practiceType('${t}','${d}')">🎯 ${lbl}<span class="rs-diff">${d}</span></button>`;}).join('');
+  return `<div class="rs-box"><div class="rs-h">Your personalized next steps</div><div class="rs-lead">Targeted practice on your weakest skills — jump straight in:</div><div class="rs-chips">${chips||'<span class="note">Nicely balanced across skills — keep practicing to deepen mastery.</span>'}</div><div class="rs-grid"><button class="rs-card" onclick="closeModal();route('lessons')"><div class="rs-ic">🧭</div><div class="rs-ct">Lesson Lab</div><div class="rs-cs">Learn the concept, then drill it</div></button><button class="rs-card" onclick="closeModal();route('academy')"><div class="rs-ic">🎮</div><div class="rs-ct">Skill Games</div><div class="rs-cs">Reinforce skills the fun way</div></button><button class="rs-card" onclick="closeModal();practiceCfg.type='Mixed';practiceCfg.adaptive=true;practiceCfg.diff='Medium';practiceCfg.count=10;route('practice')"><div class="rs-ic">⚡</div><div class="rs-ct">Adaptive Practice</div><div class="rs-cs">Auto-tuned to your level</div></button><button class="rs-card" onclick="closeModal();route('checkpoint')"><div class="rs-ic">📈</div><div class="rs-ct">Progress Checkpoint</div><div class="rs-cs">Retest and track your growth</div></button></div></div>`;
 }
 
 function renderVault(host){
