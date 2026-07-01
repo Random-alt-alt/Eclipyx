@@ -1144,6 +1144,8 @@ body.dev-on .dev-only{display:flex}
 .film-scene.on .film-title{animation:filmTitleIn 1s cubic-bezier(.2,.7,.2,1) both}
 @keyframes filmTitleIn{0%{opacity:0;transform:translateY(14px);filter:blur(6px)}100%{opacity:1;transform:translateY(0);filter:blur(0)}}
 
+.film-sound{bottom:98px;padding:14px 26px;font-size:15px;background:linear-gradient(135deg,rgba(124,92,255,.94),rgba(255,77,141,.84))!important;border:1px solid rgba(255,255,255,.6)!important;box-shadow:0 0 46px rgba(124,92,255,.55),0 10px 34px rgba(0,0,0,.45);letter-spacing:.01em}
+
 </style>
 </head>
 <body>
@@ -1534,17 +1536,23 @@ const DEMO_VOICE_SRC="data:audio/mpeg;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjY
 
 const FILM_CUES=[0,6.0,13.6,22.0,27.8,37.2,45.0,49.4];
 let _demoVoice=null;
-function enterVoiceMode(){
-  _film.voiceDriven=true; clearTimeout(_film.timer);
-  _film.i=0; try{filmShow(0);}catch(e){} try{FilmAudio.scene(0);}catch(e){} try{FilmAudio.duck(true);}catch(e){}
-  try{
-    if(_demoVoice){try{_demoVoice.pause();}catch(e){}}
-    _demoVoice=new Audio(DEMO_VOICE_SRC); _demoVoice.volume=1;
-    _demoVoice.addEventListener('timeupdate',demoVoiceSync);
-    _demoVoice.addEventListener('ended',demoVoiceEnd);
-    if(!FilmAudio.muted) _demoVoice.play().catch(()=>{ _film.voiceDriven=false; });
-  }catch(e){ _film.voiceDriven=false; }
+function filmStartSound(){
+  if(FilmAudio.muted) return;
+  if(!_demoVoice){ try{ _demoVoice=new Audio(DEMO_VOICE_SRC); _demoVoice.volume=1; }catch(e){ _demoVoice=null; } }
+  _filmArmed=true; showSoundPill(false);
+  if(_demoVoice && !_film._voiceStarted){
+    _film._voiceStarted=true; _film.voiceDriven=true; clearTimeout(_film.timer);
+    _film.i=0; try{filmShow(0);}catch(e){} try{FilmAudio.scene(0);}catch(e){}
+    try{ _demoVoice.currentTime=0; }catch(e){}
+    _demoVoice.ontimeupdate=demoVoiceSync; _demoVoice.onended=demoVoiceEnd;
+    try{ const pr=_demoVoice.play(); if(pr&&pr.catch) pr.catch(()=>{ _film._voiceStarted=false; showSoundPill(true); }); }
+    catch(e){ _film._voiceStarted=false; showSoundPill(true); }
+  } else if(_demoVoice && _film.voiceDriven){
+    try{ _demoVoice.play(); }catch(e){}
+  }
+  try{ FilmAudio.start().then(()=>{ try{FilmAudio.duck(true);}catch(e){} }); }catch(e){}
 }
+function enterVoiceMode(){ filmStartSound(); }
 function demoVoiceSync(){
   if(!_demoVoice||!_film.voiceDriven) return;
   const t=_demoVoice.currentTime;
@@ -1730,10 +1738,7 @@ function browserSpeak(i){
     });
   }catch(e){}
 }
-function filmSpeak(i){
-  if(FilmAudio.muted) return;
-  if(!_film._voiceStarted){ _film._voiceStarted=true; enterVoiceMode(); }
-}
+function filmSpeak(i){ if(FilmAudio.muted) return; filmStartSound(); }
 function filmCue(i){ FilmAudio.scene(i); filmSpeak(i); }
 
 
@@ -1747,7 +1752,7 @@ function filmShell(){
     <div class="film-stagewrap" onclick="filmAdvance(event)">
       ${FILM_SCENES.map((s,i)=>`<div class="film-scene" data-i="${i}">${s}</div>`).join('')}
     </div>
-    <div class="film-sound" id="filmSound" onclick="filmEnableSound()">🔊 Tap for sound</div>
+    <div class="film-sound" id="filmSound" onclick="filmEnableSound()">🔊 Tap anywhere to play with sound</div>
     <div class="film-dots" id="filmDots">${FILM_SCENES.map((_,i)=>`<span class="film-dot" data-i="${i}"></span>`).join('')}</div>
     <div class="film-foot"><button class="btn btn-ghost btn-sm" onclick="replayDemoFilm()">↻ Replay</button><button class="btn btn-primary btn-sm" onclick="closeDemoFilm();openAuth('signup')">Start Free →</button></div>`;
 }
@@ -1758,18 +1763,20 @@ function playDemoFilm(){
   ov.classList.add('show');
   try{ document.body.style.overflow='hidden'; }catch(e){}
   document.addEventListener('keydown', filmKey);
-  FilmAudio.muted=false; _filmArmed=false;
+  FilmAudio.muted=false; _filmArmed=false; _film.voiceDriven=false; _film._voiceStarted=false;
+  try{ _demoVoice=new Audio(DEMO_VOICE_SRC); _demoVoice.preload='auto'; _demoVoice.volume=1; }catch(e){ _demoVoice=null; }
   _film.i=-1; filmNext();
-  FilmAudio.start().then(ok=>{ if(ok){ _filmArmed=true; showSoundPill(false); filmCue(_film.i); } else { showSoundPill(true); } });
   filmArm();
+  showSoundPill(true);
+  FilmAudio.start().then(ok=>{ if(ok){ filmStartSound(); } });
 }
 function filmArm(){
-  const h=()=>{ FilmAudio.start().then(ok=>{ if(ok&&!_filmArmed){ _filmArmed=true; showSoundPill(false); filmCue(_film.i); } }); };
+  const h=()=>{ filmStartSound(); };
   _film.armH=h;
   document.addEventListener('pointerdown', h);
   document.addEventListener('keydown', h);
 }
-function filmEnableSound(){ FilmAudio.start().then(ok=>{ if(ok){ _filmArmed=true; showSoundPill(false); filmCue(_film.i); } }); }
+function filmEnableSound(){ filmStartSound(); }
 function showSoundPill(show){ const el=document.getElementById('filmSound'); if(el) el.classList.toggle('show', !!show); }
 function toggleFilmMute(){
   FilmAudio.setMuted(!FilmAudio.muted);
