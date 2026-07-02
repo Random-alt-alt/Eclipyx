@@ -5255,6 +5255,7 @@ async function firebaseOAuth(p){
       if (inFrame){ show('Pop-ups are blocked in this preview. Open the downloaded Eclipyx file in a normal browser tab to sign in with ' + p + ', or sign up with email below.', '◈'); }
       else { await doRedirect(); }                                   // full tab → redirect works (Google can’t be shown inside a frame)
     } else {
+      const c3=(e&&e.code)||''; if(/unauthorized-domain|network-request-failed|operation-not-allowed|configuration-not-found|api-key|app-not-authorized/.test(c3) && window.__localOauth){ return window.__localOauth(p); }
       show(fbErr(e) || 'Sign-in failed. Please try again.', '⚠️');
     }
   }
@@ -5279,7 +5280,7 @@ async function firebaseDoAuth(mode){
     } else {
       await fbAuth.signInWithEmailAndPassword(em, pass);
     }
-  }catch(e){ setErr(fbErr(e)); }
+  }catch(e){ const c=(e&&e.code)||''; if(/unauthorized-domain|network-request-failed|operation-not-allowed|configuration-not-found|api-key|app-not-authorized/.test(c) && window.__localDoAuth){ return window.__localDoAuth(mode); } setErr(fbErr(e)); }
 }
 
 let _fbBusy = false;
@@ -5314,7 +5315,8 @@ async function fbSync(){
 }
 
 if (FB_ACTIVE){
-  // route all auth through Firebase
+  // route all auth through Firebase (auto-fallback to local accounts when the domain isn't Firebase-authorized)
+  window.__localDoAuth = doAuth; window.__localOauth = oauthLogin;
   oauthLogin = function(p){ return firebaseOAuth(p); };
   doAuth = async function(mode){ return firebaseDoAuth(mode); };
   const _logout = logout;
@@ -5338,8 +5340,8 @@ if (FB_ACTIVE){
   ensureState();
   renderPublic(); buildSpark();
   maybeAutoFilm();
-  if (FB_ACTIVE){ return; }   // Firebase's onAuthStateChanged decides entry
-  if (S.authed && S.onboarded){ enterApp(); }
+  if (S.authed && S.onboarded){ enterApp(); return; }   // restore a saved session (works even if Firebase auth is unavailable)
+  if (FB_ACTIVE){ return; }   // otherwise Firebase's onAuthStateChanged decides entry
 })();
 </script>
 </body>
